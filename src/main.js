@@ -22,7 +22,7 @@ const createWindow = () => {
   // and load the index.html of the app.
   mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
 
-  ipcMain.on('print', async (event, url) => {
+  ipcMain.on('print', async (event, url, small) => {
     const file = await tmp.file({ postfix: '.pdf', keep: true });
     await fs.writeFile(file.path, Buffer.from(url.slice(url.indexOf(',') + 1), 'base64'));
 
@@ -36,7 +36,7 @@ const createWindow = () => {
         silent: false,
         copies: 1
       });
-      mainWindow.webContents.send('clear');
+      mainWindow.webContents.send('clear', small);
     } catch (e) {
       mainWindow.webContents.send('error', e.message);
       console.log(e);

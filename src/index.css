@@ -633,6 +633,13 @@ li > button {
   top: .5em;
   font-size: xx-large;
 }
+#print-small {
+  position: absolute;
+  left: .5em;
+  top: .5em;
+  padding-inline: .5em;
+  font-size: x-large;
+}
 
 #logo {
   width: 2rem;

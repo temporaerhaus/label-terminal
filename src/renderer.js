@@ -20,24 +20,38 @@ window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('logo').src = `data:image/svg+xml;base64,${btoa(logo)}`;
   const input = document.getElementById('scan');
   const parser = new DOMParser();
-  let queue = {};
+  const queue = {};
 
   window.electronAPI.onError((event, error) => {
     alert(`Error: ${error}`);
     document.querySelector('iframe').src = '';
     document.querySelector('iframe').style.display = 'none';
   });
-  window.electronAPI.onClear(() => {
-    queue = {};
-    document.getElementById('queue').innerHTML = '';
+  window.electronAPI.onClear((event, small) => {
+    for (const [id, item] of Object.entries(queue)) {
+      if (item.yaml.small && !small) {
+        continue;
+      } else if (!item.yaml.small && small) {
+        continue;
+      }
+
+      delete queue[id];
+      document.getElementById(id).remove();
+    }
     document.querySelector('iframe').src = '';
     document.querySelector('iframe').style.display = 'none';
   });
 
-  const printNow = async () => {
+  const printNow = async (small=false) => {
     const content = [];
 
     for (const [id, item] of Object.entries(queue)) {
+      if (item.yaml.small && !small) {
+        continue;
+      } else if (!item.yaml.small && small) {
+        continue;
+      }
+
       const svg = await new Promise((resolve, reject) => QRCode.toString(id, {
         version: 1,
         margin: 0,
@@ -55,7 +69,32 @@ window.addEventListener('DOMContentLoaded', () => {
       content.push({
         columnGap: mm2pt(.5),
         margins: 0,
-        columns: [{
+        columns: small ? [{
+          svg: svg,
+          width: mm2pt(10),
+          margin: [mm2pt(0), mm2pt(1), mm2pt(3), mm2pt(1)],
+        }, {
+          width: '*',
+          margin: [mm2pt(1), mm2pt(.3), mm2pt(1), mm2pt(3)],
+          stack: [{
+            bold: true,
+            fontSize: 6,
+            text: id.toUpperCase(),
+            margin: [mm2pt(0), mm2pt(0), mm2pt(0), mm2pt(.4)]
+          }, {
+            text: item.title,
+            fontSize: 5,
+            margin: [mm2pt(0), mm2pt(0), mm2pt(0), mm2pt(.4)],
+          }, {
+            text: item.description,
+            lineHeight: .8,
+            fontSize: 4
+          }]
+        }, {
+          svg: logo,
+          margin: [mm2pt(0), mm2pt(1)],
+          width: mm2pt(7.5)
+        }] : [{
           svg: svg,
           width: mm2pt(18),
           margin: [mm2pt(0), mm2pt(3), mm2pt(3), mm2pt(3)],
@@ -88,8 +127,8 @@ window.addEventListener('DOMContentLoaded', () => {
       delete content[0].pageBreak;
       const pdf = pdfMake.createPdf({
         pageSize: {
-          width: mm2pt(95),
-          height: mm2pt(24)
+          width: small ? mm2pt(50) : mm2pt(95),
+          height: small ? mm2pt(12) : mm2pt(24)
         },
         pageOrientation: 'landscape',
         pageMargins: 0,
@@ -105,7 +144,7 @@ window.addEventListener('DOMContentLoaded', () => {
       pdf.getDataUrl((res) => {
         document.querySelector('iframe').style.display = 'block';
         document.querySelector('iframe').src = res;
-        window.electronAPI.print(res);
+        window.electronAPI.print(res, small);
       });
     }
   };
@@ -122,12 +161,18 @@ window.addEventListener('DOMContentLoaded', () => {
 
     const id = inventoryId.toUpperCase();
     const title = doc.querySelector('#dokuwiki__content h1')?.innerText || '';
-    const yaml = [...document.querySelectorAll('#dokuwiki__content .code.yaml')]
+    const yaml = [...doc.querySelectorAll('#dokuwiki__content .code.yaml')]
       .map(e => YAML.parse(e.innerText))
       .find(e => e.inventory);
 
+    if (id.startsWith('L-') && yaml.owner) {
+      yaml.description = `Besitzer*in: ${yaml.owner}\n${yaml.description}`;
+    }
+
     if (!queue[id]) {
       const item = document.createElement('li');
+      item.id = id;
+
       queue[id] = {
         id: id,
         title: title,
@@ -137,9 +182,15 @@ window.addEventListener('DOMContentLoaded', () => {
       const bold = document.createElement('b');
       bold.style.marginRight = '1em';
       bold.innerText = id;
+      if (yaml.small) {
+        bold.innerText += ' 🤏';
+      }
 
       const label = document.createElement('div');
       label.innerText = title;
+
+      const description = document.createElement('small');
+      description.innerText = yaml.description;
 
       const button = document.createElement('button');
       button.innerText = '🗑';
@@ -151,6 +202,7 @@ window.addEventListener('DOMContentLoaded', () => {
       item.appendChild(button);
       item.appendChild(bold);
       item.appendChild(label);
+      item.appendChild(description);
 
       document.getElementById('queue').insertAdjacentElement('afterbegin', item);
     }
@@ -165,7 +217,10 @@ window.addEventListener('DOMContentLoaded', () => {
 
       try {
         if (input.value === 'PRINT') {
-          printNow();
+          printNow(false);
+          return;
+        } else if (input.value === 'PRINT_SMALL') {
+          printNow(true);
           return;
         }
 
@@ -180,8 +235,10 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  document.querySelector('#print').addEventListener('click', printNow);
+  document.querySelector('#print').addEventListener('click', () => printNow(false));
+  document.querySelector('#print-small').addEventListener('click', () => printNow(true));
 
+  /*
   setInterval(async () => {
     const res = await fetch('https://wiki.temporaerhaus.de/inventar/print-queue?do=edit');
     const html = await res.text();
@@ -207,4 +264,5 @@ window.addEventListener('DOMContentLoaded', () => {
 
     items.forEach(e => queueItem(e.slice(3).trim()));
   }, 10000);
+  */
 });
