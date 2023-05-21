@@ -18,9 +18,35 @@ function mm2pt(mm) {
 
 window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('logo').src = `data:image/svg+xml;base64,${btoa(logo)}`;
+  const printerSelect = document.getElementById('setting-printer');
   const input = document.getElementById('scan');
   const parser = new DOMParser();
   const queue = {};
+
+  document.getElementById('settings-toggle').addEventListener('click', () => {
+    document.getElementById('settings').style.display = document.getElementById('settings').style.display === 'block' ? 'none' : 'block';
+  });
+
+  const settings = {
+    printer: null,
+    printDialog: false
+  };
+
+  document.getElementById('setting-print-dialog').addEventListener('change', () => {
+    settings.printDialog = !settings.printDialog;
+  });
+
+  printerSelect.addEventListener('change', (e) => {
+    settings.printer = printerSelect.value;
+  });
+
+  window.electronAPI.getPrinters().then(({ printers, defaultPrinter }) => {
+    printers.forEach(p => printerSelect.add(new Option(p.name, p.deviceId), undefined));
+    printerSelect.value = defaultPrinter.deviceId;
+    settings.printer = defaultPrinter.deviceId;
+    document.querySelector('#print-small').disabled = false;
+    document.querySelector('#print').disabled = false;
+  });
 
   window.electronAPI.onError((event, error) => {
     alert(`Error: ${error}`);
@@ -43,6 +69,10 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 
   const printNow = async (small=false) => {
+    if (!settings.printer) {
+      return;
+    }
+
     const content = [];
 
     for (const [id, item] of Object.entries(queue)) {
@@ -144,7 +174,7 @@ window.addEventListener('DOMContentLoaded', () => {
       pdf.getDataUrl((res) => {
         document.querySelector('iframe').style.display = 'block';
         document.querySelector('iframe').src = res;
-        window.electronAPI.print(res, small);
+        window.electronAPI.print(res, settings, small);
       });
     }
   };
@@ -238,7 +268,6 @@ window.addEventListener('DOMContentLoaded', () => {
   document.querySelector('#print').addEventListener('click', () => printNow(false));
   document.querySelector('#print-small').addEventListener('click', () => printNow(true));
 
-  /*
   setInterval(async () => {
     const res = await fetch('https://wiki.temporaerhaus.de/inventar/print-queue?do=edit');
     const html = await res.text();
@@ -264,5 +293,4 @@ window.addEventListener('DOMContentLoaded', () => {
 
     items.forEach(e => queueItem(e.slice(3).trim()));
   }, 10000);
-  */
 });

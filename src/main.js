@@ -1,5 +1,5 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
-const { print } = require('pdf-to-printer');
+const { print, getPrinters, getDefaultPrinter } = require('pdf-to-printer');
 const tmp = require('tmp-promise');
 const fs = require('fs/promises');
 
@@ -22,16 +22,34 @@ const createWindow = () => {
   // and load the index.html of the app.
   mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
 
-  ipcMain.on('print', async (event, url, small) => {
+  ipcMain.on('getPrinters', async () => {
+    const printers = await getPrinters();
+    const defaultPrinter = await getDefaultPrinter();
+    mainWindow.webContents.send('getPrintersResult', {
+      defaultPrinter: defaultPrinter,
+      printers: printers
+    });
+  });
+
+  ipcMain.on('print', async (event, url, settings, small) => {
     const file = await tmp.file({ postfix: '.pdf', keep: true });
     await fs.writeFile(file.path, Buffer.from(url.slice(url.indexOf(',') + 1), 'base64'));
 
+    if (!settings || typeof settings !== 'object') {
+      settings = {};
+    }
+    if (!settings?.printer) {
+      settings.printer = 'Brother PT-P710BT';
+    }
+    if (!settings?.printDialog) {
+      settings.printDialog = false;
+    }
+
     try {
       await print(file.path, {
-        printer: 'Brother PT-P710BT',
-        // printer: 'Microsoft Print to PDF',
+        printer: settings.printer,
+        printDialog: settings.printDialog,
         orientation: 'landscape',
-        printDialog: false,
         scale: 'fit',
         silent: false,
         copies: 1
@@ -43,46 +61,6 @@ const createWindow = () => {
     }
 
     await file.cleanup();
-  });
-
-  ipcMain.on('print-old', async (event, url) => {
-    const win = new BrowserWindow({
-      show: true,
-      webPreferences: {
-        nodeIntegration: true
-      }
-    });
-    win.loadURL(url);
-
-    await Promise.all([
-      new Promise(resolve => win.webContents.on('dom-ready', resolve)),
-      new Promise(resolve => win.webContents.on('did-finish-load', resolve)),
-      new Promise(resolve => win.webContents.on('page-title-updated', resolve)),
-    ]);
-
-    win.webContents.print({
-      silent: false,
-      printBackground: true,
-      // deviceName: 'Brother PT-P710BT',
-      deviceName: 'Microsoft Print to PDF',
-      color: false,
-      margin: {
-        marginType: 'printableArea'
-      },
-      landscape: false,
-      pagesPerSheet: 1,
-      collate: false,
-      copies: 1,
-      header: '',
-      footer: ''
-    }, (success, failureReason) => {
-      if (!success) {
-        mainWindow.webContents.send('error', failureReason);
-      } else {
-        mainWindow.webContents.send('clear');
-        win.close();
-      }
-    });
   });
 };
 

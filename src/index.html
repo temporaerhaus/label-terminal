@@ -5,13 +5,28 @@
     <title>Label Terminal 🖨</title>
   </head>
   <body>
+    <button id="settings-toggle">⚙</button>
+    <blockquote id="settings">
+      <div>
+        <label for="setting-print-dialog">
+          <input type="checkbox" id="setting-print-dialog">
+          Druckdialog anzeigen
+        </label>
+      </div>
+
+      <div>
+        <label for="setting-printer">Drucker:</label>
+        <select id="setting-printer"></select>
+      </div>
+    </blockquote>
+
     <h2>
       <img src="" alt="" id="logo" />
       <div>Label Terminal</div>
     </h2>
     <h3>💖🧡💛💚💙💜</h3>
-    <button id="print">🖨</button>
-    <button id="print-small">🖨🤏</button>
+    <button disabled="disabled" id="print">🖨</button>
+    <button disabled="disabled" id="print-small">🖨🤏</button>
     <input type="text" autofocus placeholder="V-XX123456" id="scan" />
 
     <ul id="queue"></ul>

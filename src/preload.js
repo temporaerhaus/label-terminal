@@ -5,5 +5,9 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
   onError: (callback) => ipcRenderer.on('error', callback),
   onClear: (callback, small) => ipcRenderer.on('clear', callback, small),
-  print: (file, small) => ipcRenderer.send('print', file, small)
+  print: (file, settings, small) => ipcRenderer.send('print', file, settings, small),
+  getPrinters: () => new Promise(resolve => {
+    ipcRenderer.once('getPrintersResult', (event, printers) => resolve(printers));
+    ipcRenderer.send('getPrinters');
+  })
 });
