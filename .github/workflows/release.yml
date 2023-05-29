@@ -20,10 +20,8 @@ jobs:
     - name: generate release tag
       id: tag
       run: echo "::set-output name=release_tag::nightly_$(date +"%Y.%m.%d_%H-%M")"
-    - name: debugging
-      run: Get-ChildItem -Recurse -Path .\out\
     - name: release
       uses: softprops/action-gh-release@v1
       with:
-        files: "**\\*Setup.exe"
+        files: "**/*Setup.exe"
         tag_name: ${{ steps.tag.outputs.release_tag }}
