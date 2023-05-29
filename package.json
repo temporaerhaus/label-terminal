@@ -37,8 +37,5 @@
     "update-electron-app": "^2.0.1",
     "yaml": "^2.2.2"
   },
-  "repository": {
-    "type": "git",
-    "url": "github.com:temporaerhaus/label-terminal"
-  }
+  "repository": "github:temporaerhaus/label-terminal"
 }

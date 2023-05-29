@@ -23,6 +23,8 @@ const createWindow = () => {
   // and load the index.html of the app.
   mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
 
+  ipcMain.handle('isProduction', () => app.isPackaged);
+
   ipcMain.on('getPrinters', async () => {
     const printers = await getPrinters();
     const defaultPrinter = await getDefaultPrinter();
@@ -35,7 +37,6 @@ const createWindow = () => {
   ipcMain.on('print', async (event, url, settings, small) => {
     const file = await tmp.file({ postfix: '.pdf', keep: true });
     await fs.writeFile(file.path, Buffer.from(url.slice(url.indexOf(',') + 1), 'base64'));
-    console.log(file.path);
 
     if (!settings || typeof settings !== 'object') {
       settings = {};

@@ -278,7 +278,7 @@ window.addEventListener('DOMContentLoaded', () => {
     const lines = data.get('wikitext').split('\n');
     const items = lines.filter(e => e.startsWith('  *'));
 
-    if (items.length === 0) {
+    if (items.length === 0 || !(await window.electronAPI.isProduction())) {
       // nothing to do
       return;
     }
@@ -286,6 +286,7 @@ window.addEventListener('DOMContentLoaded', () => {
     data.set('wikitext', lines.filter(e => !e.startsWith('  *')).join('\n'));
     data.set('summary', 'empty queue');
     data.set('do[save]', '1');
+
     await fetch('https://wiki.temporaerhaus.de/inventar/print-queue?do=edit', {
       method: 'post',
       body: data

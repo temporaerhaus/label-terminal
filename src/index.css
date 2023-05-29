@@ -723,6 +723,7 @@ input {
 }
 
 label {
+  line-height: 1.8em;
   vertical-align: middle;
   margin-bottom: 4px;
   display: inline-block;
@@ -1663,14 +1664,14 @@ li > button {
 }
 #print-small {
   position: absolute;
-  left: .5em;
-  top: .5em;
+  right: .65em;
+  top: 3.5em;
   padding-inline: .5em;
   font-size: x-large;
 }
 #settings-toggle {
   position: absolute;
-  left: 5em;
+  left: .5em;
   top: .5em;
   padding-inline: .5em;
   font-size: x-large;
