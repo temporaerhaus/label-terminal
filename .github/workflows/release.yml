@@ -21,7 +21,7 @@ jobs:
       id: tag
       run: echo "::set-output name=release_tag::nightly_$(date +"%Y.%m.%d_%H-%M")"
     - name: debugging
-      run: Get-ChildItem -Recurse
+      run: Get-ChildItem -Recurse -Path .\out\
     - name: release
       uses: softprops/action-gh-release@v1
       with:
