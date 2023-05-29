@@ -4,7 +4,10 @@ const sumatra = fs.readdirSync('node_modules/pdf-to-printer/dist/').find(e => e.
 
 module.exports = {
   packagerConfig: {
-    extraResource: [`node_modules/pdf-to-printer/dist/${sumatra}`]
+    extraResource: [
+      `node_modules/pdf-to-printer/dist/${sumatra}`,
+      `node_modules/regedit/vbs`
+    ]
   },
   rebuildConfig: {},
   makers: [

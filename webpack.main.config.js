@@ -16,6 +16,10 @@ module.exports = {
         context: 'node_modules/pdf-to-printer/dist/',
         from: '*.exe',
         to: './',
+      }, {
+        context: 'node_modules/regedit/',
+        from: 'vbs/*',
+        to: '.'
       }]
     })
   ],
