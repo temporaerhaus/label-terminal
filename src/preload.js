@@ -3,6 +3,7 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
+  quit: () => ipcRenderer.invoke('quit'),
   isProduction: () => ipcRenderer.invoke('isProduction'),
   onError: (callback) => ipcRenderer.on('error', callback),
   onClear: (callback, small) => ipcRenderer.on('clear', callback, small),

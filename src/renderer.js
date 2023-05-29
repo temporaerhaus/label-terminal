@@ -296,4 +296,23 @@ window.addEventListener('DOMContentLoaded', () => {
 
     items.forEach(e => queueItem(e.slice(3).trim()));
   }, 10000);
+
+  document.getElementById('save-exit').addEventListener('click', async () => {
+    const res = await fetch('https://wiki.temporaerhaus.de/inventar/print-queue?do=edit');
+    const html = await res.text();
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const data = new FormData(doc.querySelector('form[method="post"]'));
+
+    data.set('wikitext', `${data.get('wikitext')}\n${Object.keys(queue).map(e => `  * ${e}`).join('\n')}`);
+    data.set('summary', 'save queue');
+    data.set('do[save]', '1');
+
+    await fetch('https://wiki.temporaerhaus.de/inventar/print-queue?do=edit', {
+      method: 'post',
+      body: data
+    });
+
+    window.electronAPI.quit();
+  });
 });

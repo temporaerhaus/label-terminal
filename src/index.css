@@ -1705,3 +1705,7 @@ iframe {
 #settings {
   display: none;
 }
+
+#save-exit {
+  padding-inline: 1em;
+}

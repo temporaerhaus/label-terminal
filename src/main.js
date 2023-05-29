@@ -23,6 +23,7 @@ const createWindow = () => {
   // and load the index.html of the app.
   mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
 
+  ipcMain.handle('quit', () => app.quit());
   ipcMain.handle('isProduction', () => app.isPackaged);
 
   ipcMain.on('getPrinters', async () => {
