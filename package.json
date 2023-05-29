@@ -2,7 +2,7 @@
   "name": "label-terminal",
   "productName": "label-terminal",
   "version": "1.0.0",
-  "description": "My Electron application description",
+  "description": "Eine besonders schräge Drucksoftware für Inventaraufkleber.",
   "main": ".webpack/main",
   "scripts": {
     "start": "electron-forge start",
@@ -34,6 +34,11 @@
     "pdf-to-printer": "^5.6.0",
     "pdfmake": "^0.2.7",
     "qrcode": "^1.5.3",
+    "update-electron-app": "^2.0.1",
     "yaml": "^2.2.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "github.com:temporaerhaus/label-terminal"
   }
 }

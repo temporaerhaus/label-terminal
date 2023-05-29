@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const { print, getPrinters, getDefaultPrinter } = require('pdf-to-printer');
 const tmp = require('tmp-promise');
 const fs = require('fs/promises');
+require('update-electron-app')();
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (require('electron-squirrel-startup')) {
@@ -34,6 +35,7 @@ const createWindow = () => {
   ipcMain.on('print', async (event, url, settings, small) => {
     const file = await tmp.file({ postfix: '.pdf', keep: true });
     await fs.writeFile(file.path, Buffer.from(url.slice(url.indexOf(',') + 1), 'base64'));
+    console.log(file.path);
 
     if (!settings || typeof settings !== 'object') {
       settings = {};
