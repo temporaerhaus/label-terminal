@@ -17,9 +17,7 @@ jobs:
       run: npm ci
     - name: build
       run: npm run make -- --arch=ia32
-    - name: debug
-      run: find .
     - name: release
       uses: softprops/action-gh-release@v1
       with:
-        files: Release.txt
+        files: label-terminal\out\make\squirrel.windows\ia32\*.exe
