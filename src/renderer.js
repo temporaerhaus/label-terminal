@@ -76,7 +76,9 @@ window.addEventListener('DOMContentLoaded', () => {
     const content = [];
 
     for (const [id, item] of Object.entries(queue)) {
-      if (item.yaml.small && !small) {
+      if (!item.yaml) {
+        continue;
+      } else if (item.yaml.small && !small) {
         continue;
       } else if (!item.yaml.small && small) {
         continue;
