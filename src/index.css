@@ -1644,7 +1644,6 @@ input {
 }
 
 ul {
-  max-width: 30rem;
   text-align: left;
   list-style: none;
 }
