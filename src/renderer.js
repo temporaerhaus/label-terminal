@@ -125,16 +125,30 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('setting-print-dialog').addEventListener('change', () => {
     settings.printDialog = !settings.printDialog;
+    localStorage.setItem('settings', JSON.stringify(settings));
   });
 
   printerSelect.addEventListener('change', (e) => {
     settings.printer = printerSelect.value;
+    localStorage.setItem('settings', JSON.stringify(settings));
   });
 
   window.electronAPI.getPrinters().then(({ printers, defaultPrinter }) => {
     printers.forEach(p => printerSelect.add(new Option(p.name, p.deviceId), undefined));
     printerSelect.value = defaultPrinter.deviceId;
     settings.printer = defaultPrinter.deviceId;
+
+    try {
+      const restored = JSON.parse(localStorage.getItem('settings'));
+      Object.assign(settings, restored);
+
+      printerSelect.value = settings.printer;
+      document.getElementById('setting-print-dialog').checked = settings.printDialog;
+    } catch {
+      // ignore
+    }
+
+    document.querySelector('#settings-toggle').disabled = false;
     document.querySelector('#print-small').disabled = false;
     document.querySelector('#print').disabled = false;
   });
@@ -203,17 +217,17 @@ window.addEventListener('DOMContentLoaded', async () => {
           margin: [mm2pt(1), mm2pt(.3), mm2pt(1), mm2pt(3)],
           stack: [{
             bold: true,
-            fontSize: 6,
+            fontSize: 7,
             text: id.toUpperCase(),
-            margin: [mm2pt(0), mm2pt(0), mm2pt(0), mm2pt(.4)]
+            margin: [mm2pt(0), mm2pt(0), mm2pt(0), mm2pt(.1)]
           }, {
-            text: await truncateText(item.title, { fontSize: 5, maxWidth: mm2pt(50 - 10 - 7.5 - 3) }),
-            fontSize: 5,
-            margin: [mm2pt(0), mm2pt(0), mm2pt(0), mm2pt(.4)],
+            text: await truncateText(item.title, { fontSize: 6, maxWidth: mm2pt(50 - 10 - 7.5 - 3) }),
+            fontSize: 6,
+            margin: [mm2pt(0), mm2pt(0), mm2pt(0), mm2pt(.1)],
           }, {
-            text: await shortenDescription(item.yaml?.description || '', { fontSize: 4, maxWidth: mm2pt(50 - 10 - 7.5 - 3), maxLines: 3 }),
+            text: await shortenDescription(item.yaml?.description || '', { fontSize: 6, maxWidth: mm2pt(50 - 10 - 7.5 - 3), maxLines: 2 }),
             lineHeight: .8,
-            fontSize: 4
+            fontSize: 6
           }]
         }, {
           svg: logo,

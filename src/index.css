@@ -1664,6 +1664,10 @@ li > button.refresh {
   right: 4em;
 }
 
+li {
+  margin-bottom: 1em;
+}
+
 #print {
   position: absolute;
   right: .5em;
