@@ -5,6 +5,8 @@ const tmp = require('tmp-promise');
 const fs = require('fs/promises');
 require('update-electron-app')();
 
+console.log(require('update-electron-app'));
+
 regedit.setExternalVBSLocation('./.webpack/main/vbs');
 regedit.setExternalVBSLocation('./vbs');
 
