@@ -16,12 +16,103 @@ function mm2pt(mm) {
   return mm / 25.4 * 72;
 }
 
+function textMaxWidth(content) {
+  return new Promise((resolve) => pdfMake.createPdf({
+    defaultStyle: { font: 'freemono' },
+    content: [{text: content, noWrap: true }],
+    pageMargins: [0, 0, 0, 0],
+  }).getStream({}, d => resolve(d.x)));
+}
+
+async function truncateText(text, options) {
+  const { maxWidth, fontSize } = options;
+  const { length } = text;
+  let b = length;
+  const trunc = (len) => {
+    len = Math.max(Math.round(len, 0), 1);
+    return len < length ? `${text.slice(0, len - 1)}…` : text;
+  };
+  const f = async (len) => (await textMaxWidth({ text: trunc(len), fontSize, })) - maxWidth;
+  let bx = await f(b);
+  if (bx > 0) {
+    let a = 0, ax = await f(0);
+    if (ax >= 0) {
+      return '…';
+    }
+    if (Math.abs(ax) < Math.abs(bx)) {
+      [a, ax, b, bx] = [b, bx, a, ax];
+    }
+    const xTol = 1;
+    let c = a, cx = ax, mflag = true, d, maxIter = 20;
+    while (maxIter-- && Math.abs(b - a) > xTol) {
+      const acx = ax - cx;
+      const bcx = bx - cx;
+      const abx = ax - bx;
+      let s = Math.abs(acx) > Number.EPSILON && Math.abs(bcx) > Number.EPSILON ?
+        a * bx * cx / (abx * acx) + b * ax * cx / (-abx * bcx) + c * ax * bx / (acx * bcx) :
+        b - bx * (b - a) / (bx - ax);
+      if (s < (3 * a + b) / 4 || s > b || (
+        mflag ?
+          (Math.abs(s - b) >= Math.abs(b - c) / 2 || Math.abs(b - c) < Math.abs(2 * Number.EPSILON * Math.abs(b))) :
+          (Math.abs(s - b) >= Math.abs(c - d) / 2 || Math.abs(c - d) < Math.abs(2 * Number.EPSILON * Math.abs(b)))
+      )) {
+        s = (a + b) / 2;
+        mflag = true;
+      } else {
+        mflag = false;
+      }
+
+      const sx = await f(s);
+      [d, c, cx] = [c, b, bx];
+      if (ax * sx < 0) {
+        [b, bx] = [s, sx];
+      } else {
+        [a, ax] = [s, sx];
+      }
+
+      if (Math.abs(ax) < Math.abs(bx)) {
+        [a, ax, b, bx] = [b, bx, a, ax];
+      }
+    }
+    return trunc(ax < bx ? a : b);
+  }
+  return text;
+};
+
+async function shortenDescription(text, options) {
+  const output = [];
+  const stack = text.split('\n');
+
+  while (stack.length > 0 && output.length < options.maxLines) {
+    let line = stack.shift();
+    const tmp = await truncateText(line, options);
+    const pos = tmp.indexOf('…');
+    if (pos >= 0) {
+      output.push(tmp.slice(0, pos));
+      stack.unshift(line.slice(pos));
+    } else if (tmp.length > 0) {
+      output.push(tmp);
+    }
+  }
+
+  return output.filter(e => e).slice(0, options.maxLines + 1).join('\n');
+}
+
 window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('logo').src = `data:image/svg+xml;base64,${btoa(logo)}`;
   const printerSelect = document.getElementById('setting-printer');
   const input = document.getElementById('scan');
   const parser = new DOMParser();
   const queue = {};
+
+  const cAlert = (msg) => new Promise((resolve) => {
+    document.getElementById('dialog').addEventListener('close', (e) => {
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => input.focus()));
+      resolve(e.target.returnValue);
+    }, { once: true });
+    document.getElementById('dialog-message').innerText = msg;
+    document.getElementById('dialog').showModal();
+  });
 
   document.getElementById('settings-toggle').addEventListener('click', () => {
     document.getElementById('settings').style.display = document.getElementById('settings').style.display === 'block' ? 'none' : 'block';
@@ -48,10 +139,11 @@ window.addEventListener('DOMContentLoaded', () => {
     document.querySelector('#print').disabled = false;
   });
 
-  window.electronAPI.onError((event, error) => {
-    alert(`Error: ${error}`);
+  window.electronAPI.onError(async (event, error) => {
+    await cAlert(error);
     document.querySelector('iframe').src = '';
     document.querySelector('iframe').style.display = 'none';
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => input.focus()));
   });
   window.electronAPI.onClear((event, small) => {
     for (const [id, item] of Object.entries(queue)) {
@@ -98,6 +190,8 @@ window.addEventListener('DOMContentLoaded', () => {
         }
       }));
 
+      console.log(item);
+
       content.push({
         columnGap: mm2pt(.5),
         margins: 0,
@@ -114,11 +208,11 @@ window.addEventListener('DOMContentLoaded', () => {
             text: id.toUpperCase(),
             margin: [mm2pt(0), mm2pt(0), mm2pt(0), mm2pt(.4)]
           }, {
-            text: item.title,
+            text: await truncateText(item.title, { fontSize: 5, maxWidth: mm2pt(50 - 10 - 7.5 - 3) }),
             fontSize: 5,
             margin: [mm2pt(0), mm2pt(0), mm2pt(0), mm2pt(.4)],
           }, {
-            text: item.description,
+            text: await shortenDescription(item.yaml?.description || '', { fontSize: 4, maxWidth: mm2pt(50 - 10 - 7.5 - 3), maxLines: 3 }),
             lineHeight: .8,
             fontSize: 4
           }]
@@ -139,10 +233,11 @@ window.addEventListener('DOMContentLoaded', () => {
             text: id.toUpperCase(),
             margin: [mm2pt(0), mm2pt(0), mm2pt(0), mm2pt(.5)]
           }, {
-            text: item.title,
+            fontSize: 9,
+            text: await truncateText(item.title, { fontSize: 9, maxWidth: mm2pt(90 - 18 - 13.45 - 2) }),
             margin: [mm2pt(0), mm2pt(0), mm2pt(0), mm2pt(.5)],
           }, {
-            text: item.description,
+            text: await shortenDescription(item.yaml?.description || '', { fontSize: 8, maxWidth: mm2pt(90 - 18 - 13.45 - 2), maxLines: 3 }),
             lineHeight: .8,
             fontSize: 8
           }]
@@ -258,11 +353,12 @@ window.addEventListener('DOMContentLoaded', () => {
 
         await queueItem(input.value);
       } catch (e) {
-        alert(`Error: ${e.message}`);
+        await cAlert(e.message);
       } finally {
         input.disabled = false;
         input.value = '';
-        input.focus();
+
+        window.requestAnimationFrame(() => window.requestAnimationFrame(() => input.focus()));
       }
     }
   });
