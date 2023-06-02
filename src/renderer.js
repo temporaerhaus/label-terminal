@@ -296,6 +296,10 @@ window.addEventListener('DOMContentLoaded', () => {
       yaml.description = `Besitzer*in: ${yaml.owner}\n${yaml.description}`;
     }
 
+    if (yaml.serial) {
+      yaml.description = `S/N: ${yaml.serial}\n${yaml.description}`;
+    }
+
     const item = document.createElement('li');
     item.id = id;
 

@@ -5,8 +5,6 @@ const tmp = require('tmp-promise');
 const fs = require('fs/promises');
 require('update-electron-app')();
 
-console.log(require('update-electron-app'));
-
 regedit.setExternalVBSLocation('./.webpack/main/vbs');
 regedit.setExternalVBSLocation('./vbs');
 
@@ -66,8 +64,7 @@ const createWindow = () => {
           }
         }, (e) => e ? reject(e) : resolve()));
       } catch (e) {
-        e.message = `Registry hack didn't work (${e.message})`;
-        throw e;
+        mainWindow.webContents.send('error', `Registry hack didn't work (${e.message})`);
       }
 
       if (!settings || typeof settings !== 'object') {
