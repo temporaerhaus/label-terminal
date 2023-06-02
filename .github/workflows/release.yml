@@ -16,8 +16,8 @@ jobs:
     - name: generate release tag
       id: tag
       run: |
-        echo "::set-output name=release_tag::$(Get-Date -Format 'yy.MMdd.HHmm')"
-        (Get-Content package.json).replace('"version": "1.0.0"', """version"": ""$(Get-Date -Format 'yy.MMdd.HHmm')""") | Set-Content package.json
+        echo "::set-output name=release_tag::$((Get-Date -Format 'yy.MMdd.HHmm') -replace '\.0+', '.')"
+        (Get-Content package.json).replace('"version": "1.0.0"', """version"": ""$((Get-Date -Format 'yy.MMdd.HHmm') -replace '\.0+', '.')""") | Set-Content package.json
     - name: install dependencies
       run: npm ci
     - name: build
