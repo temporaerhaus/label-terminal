@@ -10,24 +10,12 @@ module.exports = {
     ]
   },
   rebuildConfig: {},
-  makers: [
-    {
-      name: '@electron-forge/maker-squirrel',
-      config: {},
-    },
-    {
-      name: '@electron-forge/maker-zip',
-      platforms: ['darwin'],
-    },
-    {
-      name: '@electron-forge/maker-deb',
-      config: {},
-    },
-    {
-      name: '@electron-forge/maker-rpm',
-      config: {},
-    },
-  ],
+  makers: [{
+    name: '@electron-forge/maker-squirrel',
+    config: {
+      name: 'label-terminal-win32-ia32'
+    }
+  }],
   plugins: [
     {
       name: '@electron-forge/plugin-webpack',
