@@ -296,7 +296,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
 
     if (yaml.serial) {
-      yaml.description = `Seriennummer: ${yaml.serial}\n${yaml.description}`;
+      yaml.description = `S/N: ${yaml.serial}\n${yaml.description}`;
     }
 
     const item = document.createElement('li');
