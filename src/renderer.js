@@ -98,7 +98,7 @@ async function shortenDescription(text, options) {
   return output.filter(e => e).slice(0, options.maxLines + 1).join('\n');
 }
 
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('logo').src = `data:image/svg+xml;base64,${btoa(logo)}`;
   const printerSelect = document.getElementById('setting-printer');
   const input = document.getElementById('scan');
@@ -158,6 +158,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }
     document.querySelector('iframe').src = '';
     document.querySelector('iframe').style.display = 'none';
+    localStorage.setItem('queue', JSON.stringify(queue));
   });
 
   const printNow = async (small=false) => {
@@ -189,8 +190,6 @@ window.addEventListener('DOMContentLoaded', () => {
           resolve(data);
         }
       }));
-
-      console.log(item);
 
       content.push({
         columnGap: mm2pt(.5),
@@ -297,7 +296,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     if (yaml.serial) {
-      yaml.description = `S/N: ${yaml.serial}\n${yaml.description}`;
+      yaml.description = `Seriennummer: ${yaml.serial}\n${yaml.description}`;
     }
 
     const item = document.createElement('li');
@@ -348,7 +347,17 @@ window.addEventListener('DOMContentLoaded', () => {
       title: title,
       yaml: yaml
     };
+    localStorage.setItem('queue', JSON.stringify(queue));
   };
+
+  try {
+    const restored = JSON.parse(localStorage.getItem('queue'));
+    for (const id of Object.keys(restored)) {
+      await queueItem(id);
+    }
+  } catch {
+    // ignore
+  }
 
   input.addEventListener('blur', () => input.focus());
 
