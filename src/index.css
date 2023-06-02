@@ -1657,6 +1657,11 @@ li {
 li > button {
   position: absolute;
   right: 0;
+  padding-inline: 1em;
+}
+
+li > button.refresh {
+  right: 4em;
 }
 
 #print {

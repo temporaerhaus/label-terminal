@@ -296,43 +296,54 @@ window.addEventListener('DOMContentLoaded', () => {
       yaml.description = `Besitzer*in: ${yaml.owner}\n${yaml.description}`;
     }
 
-    if (!queue[id]) {
-      const item = document.createElement('li');
-      item.id = id;
+    const item = document.createElement('li');
+    item.id = id;
 
-      queue[id] = {
-        id: id,
-        title: title,
-        yaml: yaml
-      };
-
-      const bold = document.createElement('b');
-      bold.style.marginRight = '1em';
-      bold.innerText = id;
-      if (yaml.small) {
-        bold.innerText += ' 🤏';
-      }
-
-      const label = document.createElement('div');
-      label.innerText = title;
-
-      const description = document.createElement('small');
-      description.innerText = yaml.description;
-
-      const button = document.createElement('button');
-      button.innerText = '🗑';
-      button.addEventListener('click', () => {
-        item.remove()
-        delete queue[id];
-      });
-
-      item.appendChild(button);
-      item.appendChild(bold);
-      item.appendChild(label);
-      item.appendChild(description);
-
-      document.getElementById('queue').insertAdjacentElement('afterbegin', item);
+    const bold = document.createElement('b');
+    bold.style.marginRight = '1em';
+    bold.innerText = id;
+    if (yaml.small) {
+      bold.innerText += ' 🤏';
     }
+
+    const label = document.createElement('div');
+    label.innerText = title;
+
+    const description = document.createElement('small');
+    description.innerText = yaml.description;
+
+    const button = document.createElement('button');
+    button.innerText = '🗑';
+    button.addEventListener('click', () => {
+      item.remove()
+      delete queue[id];
+    });
+
+    const refresh = document.createElement('button');
+    refresh.innerText = '🔄️';
+    refresh.className = 'refresh';
+    refresh.addEventListener('click', () => queueItem(id));
+
+    item.appendChild(refresh);
+    item.appendChild(button);
+    item.appendChild(bold);
+    item.appendChild(label);
+    item.appendChild(description);
+
+    const tmp = document.getElementById(id);
+    if (!tmp || !queue[id]) {
+      document.getElementById('queue').insertAdjacentElement('afterbegin', item);
+    } else {
+      tmp.id = 'deleting';
+      tmp.insertAdjacentElement('beforebegin', item);
+      tmp.remove();
+    }
+
+    queue[id] = {
+      id: id,
+      title: title,
+      yaml: yaml
+    };
   };
 
   input.addEventListener('blur', () => input.focus());
