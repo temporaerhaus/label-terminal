@@ -1718,6 +1718,6 @@ iframe {
   display: none;
 }
 
-#save-exit {
+#save-exit, #undo {
   padding-inline: 1em;
 }

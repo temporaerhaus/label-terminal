@@ -160,6 +160,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     window.requestAnimationFrame(() => window.requestAnimationFrame(() => input.focus()));
   });
   window.electronAPI.onClear((event, small) => {
+    const undo = [];
     for (const [id, item] of Object.entries(queue)) {
       if (item.yaml.small && !small) {
         continue;
@@ -169,10 +170,12 @@ window.addEventListener('DOMContentLoaded', async () => {
 
       delete queue[id];
       document.getElementById(id).remove();
+      undo.push(id);
     }
     document.querySelector('iframe').src = '';
     document.querySelector('iframe').style.display = 'none';
     localStorage.setItem('queue', JSON.stringify(queue));
+    localStorage.setItem('undo', JSON.stringify(undo));
   });
 
   const printNow = async (small=false) => {
@@ -448,5 +451,16 @@ window.addEventListener('DOMContentLoaded', async () => {
     });
 
     window.electronAPI.quit();
+  });
+
+  document.getElementById('undo').addEventListener('click', async () => {
+    try {
+      const items = JSON.parse(localStorage.getItem('undo'));
+      for (const id of items) {
+        await queueItem(id);
+      }
+    } catch (e) {
+      await cAlert(e.message);
+    }
   });
 });
