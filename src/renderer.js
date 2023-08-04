@@ -337,6 +337,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     button.addEventListener('click', () => {
       item.remove()
       delete queue[id];
+      input.focus();
     });
 
     const refresh = document.createElement('button');
@@ -365,6 +366,7 @@ window.addEventListener('DOMContentLoaded', async () => {
       yaml: yaml
     };
     localStorage.setItem('queue', JSON.stringify(queue));
+    input.focus();
   };
 
   try {
@@ -376,7 +378,12 @@ window.addEventListener('DOMContentLoaded', async () => {
     // ignore
   }
 
-  input.addEventListener('blur', () => input.focus());
+  input.addEventListener('blur', (e) => {
+    if (e.relatedTarget?.tagName === 'BUTTON') {
+      return;
+    }
+    input.focus();
+  });
 
   input.addEventListener('keydown', async (evt) => {
     if (evt.keyCode === 13 || evt.key === 'Enter') {
