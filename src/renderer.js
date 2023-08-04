@@ -337,6 +337,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     button.addEventListener('click', () => {
       item.remove()
       delete queue[id];
+      localStorage.setItem('queue', JSON.stringify(queue));
       input.focus();
     });
 
