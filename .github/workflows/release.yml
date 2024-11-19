@@ -9,21 +9,21 @@ jobs:
       contents: write
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - uses: actions/setup-node@master
       with:
         node-version: 18
     - name: generate release tag
       id: tag
       run: |
-        echo "::set-output name=release_tag::$((Get-Date -Format 'yy.MMdd.HHmm') -replace '\.0+', '.')"
+        echo "release_tag=$((Get-Date -Format 'yy.MMdd.HHmm') -replace '\.0+', '.')" >> $Env:GITHUB_OUTPUT
         (Get-Content package.json).replace('"version": "1.0.0"', """version"": ""$((Get-Date -Format 'yy.MMdd.HHmm') -replace '\.0+', '.')""") | Set-Content package.json
     - name: install dependencies
       run: npm ci
     - name: build
       run: npm run make -- --arch=ia32
     - name: release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         files: "out/make/*/*/*"
         tag_name: ${{ steps.tag.outputs.release_tag }}
