@@ -31,7 +31,7 @@
   },
   "dependencies": {
     "electron-squirrel-startup": "^1.0.0",
-    "pdf-to-printer": "^5.6.0",
+    "pdf-to-printer": "git+https://github.com/barroudjo/pdf-to-printer.git#655bef4d5a88b8296a439bacf41fbe7a87c68ce9",
     "pdfmake": "^0.2.7",
     "qrcode": "^1.5.3",
     "regedit": "^5.1.2",
