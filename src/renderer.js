@@ -5,6 +5,7 @@ import QRCode from 'qrcode';
 import logo from './logo.svg';
 import pdfMake from 'pdfmake/build/pdfmake';
 import { CONTENTS_REGEX, collectContents, contentsDocument, fetchInventoryItem } from './contents-list';
+import { putQueue, takeQueue } from './print-queue';
 
 pdfMake.fonts = {
   freemono: {
@@ -486,48 +487,36 @@ window.addEventListener('DOMContentLoaded', async () => {
   document.querySelector('#print-small').addEventListener('click', () => printNow('small'));
   document.querySelector('#print-a4').addEventListener('click', () => printNow('a4'));
 
+  // one look at the queue at a time, a slow wiki must not lead to overlapping ones
+  let polling = false;
   setInterval(async () => {
-    const res = await fetch('https://wiki.temporaerhaus.de/inventar/print-queue?do=edit');
-    const html = await res.text();
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-    const data = new FormData(doc.querySelector('form[method="post"]'));
-
-    const lines = data.get('wikitext').split('\n');
-    const items = lines.filter(e => e.startsWith('  *'));
-
-    if (items.length === 0 || !(await window.electronAPI.isProduction())) {
-      // nothing to do
+    if (polling || !(await window.electronAPI.isProduction())) {
       return;
     }
 
-    data.set('wikitext', lines.filter(e => !e.startsWith('  *')).join('\n'));
-    data.set('summary', 'empty queue');
-    data.set('do[save]', '1');
-
-    await fetch('https://wiki.temporaerhaus.de/inventar/print-queue?do=edit', {
-      method: 'post',
-      body: data
-    });
-
-    items.forEach(e => queueItem(e.slice(3).trim()));
+    polling = true;
+    try {
+      // the entries are off the wiki's queue now, so failures have to be shown here
+      const entries = await takeQueue();
+      const results = await Promise.allSettled(entries.map(e => queueItem(e)));
+      const failed = results.map((e, i) => e.status === 'rejected' ? `${entries[i]}: ${e.reason?.message}` : null).filter(e => e);
+      if (failed.length > 0) {
+        await cAlert(failed.join('\n'));
+      }
+    } catch (e) {
+      console.log(e);
+    } finally {
+      polling = false;
+    }
   }, 10000);
 
   document.getElementById('save-exit').addEventListener('click', async () => {
-    const res = await fetch('https://wiki.temporaerhaus.de/inventar/print-queue?do=edit');
-    const html = await res.text();
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-    const data = new FormData(doc.querySelector('form[method="post"]'));
-
-    data.set('wikitext', `${data.get('wikitext')}\n${Object.keys(queue).map(e => `  * ${e}`).join('\n')}`);
-    data.set('summary', 'save queue');
-    data.set('do[save]', '1');
-
-    await fetch('https://wiki.temporaerhaus.de/inventar/print-queue?do=edit', {
-      method: 'post',
-      body: data
-    });
+    try {
+      await putQueue(Object.keys(queue));
+    } catch (e) {
+      await cAlert(e.message);
+      return;
+    }
 
     window.electronAPI.quit();
   });
