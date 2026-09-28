@@ -1681,6 +1681,13 @@ li {
   padding-inline: .5em;
   font-size: x-large;
 }
+#print-a4 {
+  position: absolute;
+  right: .65em;
+  top: 5.75em;
+  padding-inline: .5em;
+  font-size: x-large;
+}
 #settings-toggle {
   position: absolute;
   left: .5em;

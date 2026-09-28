@@ -6,8 +6,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   quit: () => ipcRenderer.invoke('quit'),
   isProduction: () => ipcRenderer.invoke('isProduction'),
   onError: (callback) => ipcRenderer.on('error', callback),
-  onClear: (callback, small) => ipcRenderer.on('clear', callback, small),
-  print: (file, settings, small) => ipcRenderer.send('print', file, settings, small),
+  onClear: (callback) => ipcRenderer.on('clear', callback),
+  print: (file, settings, format) => ipcRenderer.send('print', file, settings, format),
   getPrinters: () => new Promise(resolve => {
     ipcRenderer.once('getPrintersResult', (event, printers) => resolve(printers));
     ipcRenderer.send('getPrinters');

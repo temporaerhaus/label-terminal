@@ -4,6 +4,7 @@ import YAML from 'yaml';
 import QRCode from 'qrcode';
 import logo from './logo.svg';
 import pdfMake from 'pdfmake/build/pdfmake';
+import { CONTENTS_REGEX, collectContents, contentsDocument, fetchInventoryItem } from './contents-list';
 
 pdfMake.fonts = {
   freemono: {
@@ -101,6 +102,7 @@ async function shortenDescription(text, options) {
 window.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('logo').src = `data:image/svg+xml;base64,${btoa(logo)}`;
   const printerSelect = document.getElementById('setting-printer');
+  const printerA4Select = document.getElementById('setting-printer-a4');
   const input = document.getElementById('scan');
   const parser = new DOMParser();
   const queue = {};
@@ -120,8 +122,13 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   const settings = {
     printer: null,
+    // contents lists go to a regular printer, not the label printer
+    printerA4: null,
     printDialog: false
   };
+
+  // labels come in two sizes, contents lists are A4 pages
+  const formatOf = (item) => item.contents ? 'a4' : item.yaml?.small ? 'small' : 'large';
 
   document.getElementById('setting-print-dialog').addEventListener('change', () => {
     settings.printDialog = !settings.printDialog;
@@ -133,16 +140,25 @@ window.addEventListener('DOMContentLoaded', async () => {
     localStorage.setItem('settings', JSON.stringify(settings));
   });
 
+  printerA4Select.addEventListener('change', (e) => {
+    settings.printerA4 = printerA4Select.value;
+    localStorage.setItem('settings', JSON.stringify(settings));
+  });
+
   window.electronAPI.getPrinters().then(({ printers, defaultPrinter }) => {
     printers.forEach(p => printerSelect.add(new Option(p.name, p.deviceId), undefined));
+    printers.forEach(p => printerA4Select.add(new Option(p.name, p.deviceId), undefined));
     printerSelect.value = defaultPrinter.deviceId;
+    printerA4Select.value = defaultPrinter.deviceId;
     settings.printer = defaultPrinter.deviceId;
+    settings.printerA4 = defaultPrinter.deviceId;
 
     try {
       const restored = JSON.parse(localStorage.getItem('settings'));
       Object.assign(settings, restored);
 
       printerSelect.value = settings.printer;
+      printerA4Select.value = settings.printerA4;
       document.getElementById('setting-print-dialog').checked = settings.printDialog;
     } catch {
       // ignore
@@ -151,6 +167,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     document.querySelector('#settings-toggle').disabled = false;
     document.querySelector('#print-small').disabled = false;
     document.querySelector('#print').disabled = false;
+    document.querySelector('#print-a4').disabled = false;
   });
 
   window.electronAPI.onError(async (event, error) => {
@@ -159,12 +176,10 @@ window.addEventListener('DOMContentLoaded', async () => {
     document.querySelector('iframe').style.display = 'none';
     window.requestAnimationFrame(() => window.requestAnimationFrame(() => input.focus()));
   });
-  window.electronAPI.onClear((event, small) => {
+  window.electronAPI.onClear((event, format) => {
     const undo = [];
     for (const [id, item] of Object.entries(queue)) {
-      if (item.yaml.small && !small) {
-        continue;
-      } else if (!item.yaml.small && small) {
+      if (formatOf(item) !== format) {
         continue;
       }
 
@@ -178,19 +193,40 @@ window.addEventListener('DOMContentLoaded', async () => {
     localStorage.setItem('undo', JSON.stringify(undo));
   });
 
-  const printNow = async (small=false) => {
+  const showAndPrint = (pdf, printSettings, format) => {
+    pdf.getDataUrl((res) => {
+      document.querySelector('iframe').style.display = 'block';
+      document.querySelector('iframe').src = res;
+      window.electronAPI.print(res, printSettings, format);
+    });
+  };
+
+  // all queued contents lists in one print job, on the A4 printer
+  const printContents = async () => {
+    if (!settings.printerA4) {
+      return;
+    }
+
+    const lists = Object.values(queue).filter(e => formatOf(e) === 'a4').map(e => e.contents);
+    if (lists.length > 0) {
+      showAndPrint(pdfMake.createPdf(await contentsDocument(lists)), { ...settings, printer: settings.printerA4 }, 'a4');
+    }
+  };
+
+  const printNow = async (format='large') => {
+    if (format === 'a4') {
+      return printContents();
+    }
+
     if (!settings.printer) {
       return;
     }
 
+    const small = format === 'small';
     const content = [];
 
     for (const [id, item] of Object.entries(queue)) {
-      if (!item.yaml) {
-        continue;
-      } else if (item.yaml.small && !small) {
-        continue;
-      } else if (!item.yaml.small && small) {
+      if (!item.yaml || formatOf(item) !== format) {
         continue;
       }
 
@@ -284,15 +320,32 @@ window.addEventListener('DOMContentLoaded', async () => {
         content: content
       });
 
-      pdf.getDataUrl((res) => {
-        document.querySelector('iframe').style.display = 'block';
-        document.querySelector('iframe').src = res;
-        window.electronAPI.print(res, settings, small);
-      });
+      showAndPrint(pdf, settings, format);
     }
   };
 
-  const queueItem = async (inventoryId) => {
+  // "inhaltsliste:39C3:2", the contents of a container, two levels of sub containers deep
+  const fetchContents = async (entry) => {
+    const [, containerId, depth] = CONTENTS_REGEX.exec(entry);
+    const inventoryId = containerId.toUpperCase();
+    const levels = Number(depth || 0);
+    const container = await fetchInventoryItem(inventoryId);
+
+    if (!container) {
+      throw new Error(`${inventoryId} nicht gefunden`);
+    }
+
+    const rows = await collectContents(inventoryId, levels);
+    return {
+      // the queue entry itself, so that it can be restored and saved back to the print queue
+      id: `inhaltsliste:${inventoryId}${levels > 0 ? `:${levels}` : ''}`,
+      title: container.title,
+      description: `Inhaltsliste, ${rows.length} ${rows.length === 1 ? 'Gegenstand' : 'Gegenstände'}${levels > 0 ? `, Unter-Behälter ${levels} ${levels === 1 ? 'Ebene' : 'Ebenen'} tief` : ''}`,
+      contents: { inventoryId, title: container.title, rows }
+    };
+  };
+
+  const fetchLabel = async (inventoryId) => {
     const res = await fetch(`https://wiki.temporaerhaus.de/inventar/${inventoryId}`);
 
     if (res.status !== 200) {
@@ -316,13 +369,23 @@ window.addEventListener('DOMContentLoaded', async () => {
       yaml.description = `S/N: ${yaml.serial}\n${yaml.description}`;
     }
 
+    return { id, title, description: yaml.description, yaml };
+  };
+
+  const queueItem = async (entry) => {
+    const { id, title, description: text, yaml, contents } = CONTENTS_REGEX.test(entry) ?
+      await fetchContents(entry) :
+      await fetchLabel(entry);
+
     const item = document.createElement('li');
     item.id = id;
 
     const bold = document.createElement('b');
     bold.style.marginRight = '1em';
-    bold.innerText = id;
-    if (yaml.small) {
+    bold.innerText = contents ? contents.inventoryId : id;
+    if (contents) {
+      bold.innerText += ' 📄';
+    } else if (yaml.small) {
       bold.innerText += ' 🤏';
     }
 
@@ -330,7 +393,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     label.innerText = title;
 
     const description = document.createElement('small');
-    description.innerText = yaml.description;
+    description.innerText = text;
 
     const button = document.createElement('button');
     button.innerText = '🗑';
@@ -361,7 +424,11 @@ window.addEventListener('DOMContentLoaded', async () => {
       tmp.remove();
     }
 
-    queue[id] = {
+    queue[id] = contents ? {
+      id: id,
+      title: title,
+      contents: contents
+    } : {
       id: id,
       title: title,
       yaml: yaml
@@ -393,10 +460,13 @@ window.addEventListener('DOMContentLoaded', async () => {
 
       try {
         if (input.value === 'PRINT') {
-          printNow(false);
+          printNow('large');
           return;
         } else if (input.value === 'PRINT_SMALL') {
-          printNow(true);
+          printNow('small');
+          return;
+        } else if (input.value === 'PRINT_A4') {
+          printNow('a4');
           return;
         }
 
@@ -412,8 +482,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  document.querySelector('#print').addEventListener('click', () => printNow(false));
-  document.querySelector('#print-small').addEventListener('click', () => printNow(true));
+  document.querySelector('#print').addEventListener('click', () => printNow('large'));
+  document.querySelector('#print-small').addEventListener('click', () => printNow('small'));
+  document.querySelector('#print-a4').addEventListener('click', () => printNow('a4'));
 
   setInterval(async () => {
     const res = await fetch('https://wiki.temporaerhaus.de/inventar/print-queue?do=edit');

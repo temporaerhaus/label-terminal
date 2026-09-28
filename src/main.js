@@ -42,35 +42,43 @@ const createWindow = () => {
     });
   });
 
-  ipcMain.on('print', async (event, url, settings, small) => {
+  // format is one of 'large' and 'small' for labels, or 'a4' for contents lists
+  ipcMain.on('print', async (event, url, settings, format) => {
     try {
       const file = await tmp.file({ postfix: '.pdf', keep: true });
       await fs.writeFile(file.path, Buffer.from(url.slice(url.indexOf(',') + 1), 'base64'));
+      const small = format === 'small';
+      const label = format !== 'a4';
 
-      // update registry
-      try {
-        await new Promise((resolve, reject) => regedit.putValue({
-          'HKCU\\Printers\\DevModePerUser': {
-            'Brother PT-P710BT': {
-              type: 'REG_BINARY',
-              value: small ? REGISTRY_SMALL : REGISTRY_LARGE
+      // update registry, only the label printer needs to be told about the tape
+      if (label) {
+        try {
+          await new Promise((resolve, reject) => regedit.putValue({
+            'HKCU\\Printers\\DevModePerUser': {
+              'Brother PT-P710BT': {
+                type: 'REG_BINARY',
+                value: small ? REGISTRY_SMALL : REGISTRY_LARGE
+              }
+            },
+            'HKCU\\Printers\\DevModes2': {
+              'Brother PT-P710BT': {
+                type: 'REG_BINARY',
+                value: small ? REGISTRY_SMALL : REGISTRY_LARGE
+              }
             }
-          },
-          'HKCU\\Printers\\DevModes2': {
-            'Brother PT-P710BT': {
-              type: 'REG_BINARY',
-              value: small ? REGISTRY_SMALL : REGISTRY_LARGE
-            }
-          }
-        }, (e) => e ? reject(e) : resolve()));
-      } catch (e) {
-        mainWindow.webContents.send('error', `Registry hack didn't work (${e.message})`);
+          }, (e) => e ? reject(e) : resolve()));
+        } catch (e) {
+          mainWindow.webContents.send('error', `Registry hack didn't work (${e.message})`);
+        }
       }
 
       if (!settings || typeof settings !== 'object') {
         settings = {};
       }
       if (!settings?.printer) {
+        if (!label) {
+          throw new Error('Kein Drucker für Inhaltslisten ausgewählt');
+        }
         settings.printer = 'Brother PT-P710BT';
       }
       if (!settings?.printDialog) {
@@ -86,7 +94,7 @@ const createWindow = () => {
         copies: 1
       });
 
-      mainWindow.webContents.send('clear', small);
+      mainWindow.webContents.send('clear', format);
       await file.cleanup();
     } catch (e) {
       mainWindow.webContents.send('error', e.message);
