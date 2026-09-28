@@ -108,6 +108,17 @@ window.addEventListener('DOMContentLoaded', async () => {
   const parser = new DOMParser();
   const queue = {};
 
+  // shown from a click on a print button until the print is done
+  const loader = document.getElementById('printing');
+  // if the print never comes back, e.g. because the pdf could not be created
+  const PRINT_TIMEOUT = 2 * 60 * 1000;
+  let printing = null;
+  const printDone = () => {
+    clearTimeout(printing);
+    printing = null;
+    loader.hidden = true;
+  };
+
   const cAlert = (msg) => new Promise((resolve) => {
     document.getElementById('dialog').addEventListener('close', (e) => {
       window.requestAnimationFrame(() => window.requestAnimationFrame(() => input.focus()));
@@ -177,6 +188,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     document.querySelector('iframe').style.display = 'none';
     window.requestAnimationFrame(() => window.requestAnimationFrame(() => input.focus()));
   });
+  window.electronAPI.onPrintDone(() => printDone());
   window.electronAPI.onClear((event, format) => {
     const undo = [];
     for (const [id, item] of Object.entries(queue)) {
@@ -194,33 +206,52 @@ window.addEventListener('DOMContentLoaded', async () => {
     localStorage.setItem('undo', JSON.stringify(undo));
   });
 
+  // the main process reports back with printDone once the print is through
   const showAndPrint = (pdf, printSettings, format) => {
     pdf.getDataUrl((res) => {
       document.querySelector('iframe').style.display = 'block';
       document.querySelector('iframe').src = res;
       window.electronAPI.print(res, printSettings, format);
     });
+    return true;
   };
 
   // all queued contents lists in one print job, on the A4 printer
   const printContents = async () => {
     if (!settings.printerA4) {
-      return;
+      return false;
     }
 
     const lists = Object.values(queue).filter(e => formatOf(e) === 'a4').map(e => e.contents);
-    if (lists.length > 0) {
-      showAndPrint(pdfMake.createPdf(await contentsDocument(lists)), { ...settings, printer: settings.printerA4 }, 'a4');
+    if (lists.length === 0) {
+      return false;
     }
+
+    return showAndPrint(pdfMake.createPdf(await contentsDocument(lists)), { ...settings, printer: settings.printerA4 }, 'a4');
   };
 
   const printNow = async (format='large') => {
-    if (format === 'a4') {
-      return printContents();
+    if (printing) {
+      return;
     }
 
+    printing = setTimeout(printDone, PRINT_TIMEOUT);
+    loader.hidden = false;
+    try {
+      if (!(await (format === 'a4' ? printContents() : printLabels(format)))) {
+        // nothing to print
+        printDone();
+      }
+    } catch (e) {
+      printDone();
+      await cAlert(e.message);
+    }
+  };
+
+  // returns whether a print job went out
+  const printLabels = async (format) => {
     if (!settings.printer) {
-      return;
+      return false;
     }
 
     const small = format === 'small';
@@ -321,8 +352,10 @@ window.addEventListener('DOMContentLoaded', async () => {
         content: content
       });
 
-      showAndPrint(pdf, settings, format);
+      return showAndPrint(pdf, settings, format);
     }
+
+    return false;
   };
 
   // "inhaltsliste:39C3:2", the contents of a container, two levels of sub containers deep

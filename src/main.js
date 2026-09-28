@@ -99,6 +99,8 @@ const createWindow = () => {
     } catch (e) {
       mainWindow.webContents.send('error', e.message);
       console.log(e);
+    } finally {
+      mainWindow.webContents.send('printDone');
     }
   });
 };
