@@ -3,6 +3,7 @@
 // keep them in sync.
 import YAML from 'yaml';
 import QRCode from 'qrcode';
+import logo from './logo-full.svg';
 
 const WIKI = 'https://wiki.temporaerhaus.de';
 const PREFIX = 'inventar';
@@ -229,6 +230,10 @@ export async function contentsDocument(lists) {
             { text: title || '', fontSize: 10 },
             { text: `${rows.length} ${rows.length === 1 ? 'Gegenstand' : 'Gegenstände'} · Stand ${created}`, fontSize: 7, color: '#666666' }
           ]
+        }, {
+          // 910 × 380, at the height of the QR code
+          svg: logo,
+          width: mm2pt(18) * 910 / 380
         }],
         margin: [margin.side, mm2pt(8), margin.side, 0]
       };
@@ -236,9 +241,10 @@ export async function contentsDocument(lists) {
 
     footer: (current) => {
       const { inventoryId, first, count } = section(current);
+      const pageUrl = `${WIKI}/${PREFIX}/${inventoryId.toLowerCase()}`;
       return {
         columns: [
-          { text: `${inventoryId} · Stand ${created}`, color: '#666666' },
+          { text: pageUrl, link: pageUrl, color: '#0066aa' },
           { text: `Seite ${current - first + 1} von ${count}`, alignment: 'right', color: '#666666' }
         ],
         fontSize: 7,
