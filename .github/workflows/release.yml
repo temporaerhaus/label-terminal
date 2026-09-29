@@ -15,14 +15,18 @@ jobs:
         node-version: 18
     - name: generate release tag
       id: tag
+      # the build time without leading zeros, but at least one digit per part (00:00 becomes 0)
       run: |
-        echo "release_tag=$((Get-Date -Format 'yy.MMdd.HHmm') -replace '\.0+', '.')" >> $Env:GITHUB_OUTPUT
-        (Get-Content package.json).replace('"version": "1.0.0"', """version"": ""$((Get-Date -Format 'yy.MMdd.HHmm') -replace '\.0+', '.')""") | Set-Content package.json
+        $version = (Get-Date -Format 'yy.MMdd.HHmm') -replace '\.0+(?=\d)', '.'
+        echo "release_tag=$version" >> $Env:GITHUB_OUTPUT
+        (Get-Content package.json).replace('"version": "1.0.0"', """version"": ""$version""") | Set-Content package.json
     - name: install dependencies
       run: npm ci
     - name: build
       run: npm run make -- --arch=ia32
+    # every published release is installed by the terminals, pull requests only get a test build
     - name: release
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       uses: softprops/action-gh-release@v2
       with:
         files: "out/make/*/*/*"
