@@ -396,7 +396,7 @@ window.addEventListener('DOMContentLoaded', async () => {
       .find(e => e.inventory);
 
     if (id.startsWith('L-') && yaml.owner) {
-      yaml.description = `Besitzer*in: ${yaml.owner}\n${yaml.description}`;
+      yaml.description = `Eigentümer*in: ${yaml.owner}\n${yaml.description}`;
     }
 
     if (yaml.serial) {
