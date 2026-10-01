@@ -522,6 +522,9 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   // one look at the queue at a time, a slow wiki must not lead to overlapping ones
   let polling = false;
+  // contents lists from the wiki's queue are printed right away, without a click on
+  // print, once a running print is done and the A4 printer is known
+  let contentsPending = false;
   setInterval(async () => {
     if (polling || !(await window.electronAPI.isProduction())) {
       return;
@@ -532,6 +535,14 @@ window.addEventListener('DOMContentLoaded', async () => {
       // the entries are off the wiki's queue now, so failures have to be shown here
       const entries = await takeQueue();
       const results = await Promise.allSettled(entries.map(e => queueItem(e)));
+      if (results.some((e, i) => e.status === 'fulfilled' && CONTENTS_REGEX.test(entries[i]))) {
+        contentsPending = true;
+      }
+      if (contentsPending && !printing && settings.printerA4) {
+        contentsPending = false;
+        printNow('a4');
+      }
+
       const failed = results.map((e, i) => e.status === 'rejected' ? `${entries[i]}: ${e.reason?.message}` : null).filter(e => e);
       if (failed.length > 0) {
         await cAlert(failed.join('\n'));
