@@ -16,6 +16,16 @@ const LOCK_TIMEOUT = 10 * 1000;
 
 async function readPage(page) {
   const res = await fetch(`${WIKI}/${page}?do=export_raw`, { cache: 'no-store' });
+
+  // the lock date is the wiki's time, not ours
+  const date = new Date(res.headers.get('Date'));
+  const now = isNaN(date) ? new Date() : date;
+
+  // dokuwiki deletes a page that is saved empty, which is what releasing the
+  // lock does (and emptying a queue without anything else on its page)
+  if (res.status === 404) {
+    return { text: '', now };
+  }
   if (res.status !== 200) {
     throw new Error(`${page}: ${res.status} ${res.statusText}`);
   }
@@ -24,11 +34,9 @@ async function readPage(page) {
     throw new Error(`${page} kann nicht gelesen werden, ist das Terminal im Wiki angemeldet?`);
   }
 
-  // the lock's date is the wiki's time, not ours
-  const date = new Date(res.headers.get('Date'));
   return {
     text: (await res.text()).replaceAll('\r\n', '\n'),
-    now: isNaN(date) ? new Date() : date
+    now
   };
 }
 
