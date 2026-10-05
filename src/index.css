@@ -1821,3 +1821,23 @@ iframe {
   0%, 15% { transform: rotate(0); }
 	100% { transform: rotate(360deg); }
 }
+
+/* how many labels of an item to print, next to its buttons */
+li > .copies {
+  position: absolute;
+  right: 8em;
+  display: flex;
+  align-items: center;
+  gap: .25em;
+}
+
+li > .copies button {
+  padding-inline: .6em;
+}
+
+li > .copies input {
+  width: 3em;
+  margin: 0;
+  font-size: inherit;
+  text-align: center;
+}

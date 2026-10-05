@@ -5,7 +5,7 @@ import QRCode from 'qrcode';
 import logo from './logo.svg';
 import pdfMake from 'pdfmake/build/pdfmake';
 import { CONTENTS_REGEX, collectContents, contentsDocument, fetchInventoryItem } from './contents-list';
-import { putQueue, readQueue, removeFromQueue, sameEntry } from './print-queue';
+import { MAX_COPIES, changeQueue, clampCount, putQueue, readQueue, sameEntry } from './print-queue';
 
 pdfMake.fonts = {
   freemono: {
@@ -117,23 +117,40 @@ window.addEventListener('DOMContentLoaded', async () => {
     delete queue[id];
     document.getElementById(id)?.remove();
   };
+  // the number of labels of an item, as shown in its entry
+  const showCount = (id) => {
+    const copies = document.getElementById(id)?.querySelector('.copies');
+    if (!copies) {
+      return;
+    }
 
-  // entries to take off the wiki's queue, because they were printed or removed
-  // here; kept until that worked, the lock may be taken, the wiki unreachable
-  let removals = [];
+    const count = queue[id]?.count || 1;
+    copies.querySelector('input').value = count;
+    copies.querySelector('.less').disabled = count <= 1;
+    copies.querySelector('.more').disabled = count >= MAX_COPIES;
+  };
+
+  // changes to the wiki's queue, [{entry, count}], a count of 0 takes the entry
+  // off it: printed or removed here, or a count changed here; kept until they
+  // are saved, the lock may be taken, the wiki unreachable
+  let wikiChanges = [];
   try {
-    removals = JSON.parse(localStorage.getItem('removals')) || [];
+    wikiChanges = JSON.parse(localStorage.getItem('wikiChanges')) || [];
+    // left by the version before counts
+    wikiChanges.push(...(JSON.parse(localStorage.getItem('removals')) || []).map(entry => ({ entry, count: 0 })));
+    localStorage.removeItem('removals');
   } catch {
     // ignore
   }
-  const removeFromWiki = async (entries, { wait = false } = {}) => {
-    removals.push(...entries);
-    localStorage.setItem('removals', JSON.stringify(removals));
+  const changeWiki = async (changes, { wait = false } = {}) => {
+    // a later change of an entry replaces an earlier one
+    wikiChanges = [...wikiChanges.filter(e => !changes.some(c => sameEntry(c.entry, e.entry))), ...changes];
+    localStorage.setItem('wikiChanges', JSON.stringify(wikiChanges));
 
-    const pending = [...removals];
-    if (await removeFromQueue(pending, { wait })) {
-      removals = removals.filter(e => !pending.includes(e));
-      localStorage.setItem('removals', JSON.stringify(removals));
+    const pending = [...wikiChanges];
+    if (await changeQueue(pending, { wait })) {
+      wikiChanges = wikiChanges.filter(e => !pending.includes(e));
+      localStorage.setItem('wikiChanges', JSON.stringify(wikiChanges));
     }
   };
 
@@ -148,14 +165,19 @@ window.addEventListener('DOMContentLoaded', async () => {
     loader.hidden = true;
   };
 
-  const cAlert = (msg) => new Promise((resolve) => {
+  // resolves with the value of the button it was closed with, '' for escape
+  const cAlert = (msg, { title = '⚠️ Fehler', cancel = false } = {}) => new Promise((resolve) => {
     document.getElementById('dialog').addEventListener('close', (e) => {
       window.requestAnimationFrame(() => window.requestAnimationFrame(() => input.focus()));
       resolve(e.target.returnValue);
     }, { once: true });
+    document.getElementById('dialog-title').innerText = title;
+    document.getElementById('dialog-cancel').hidden = !cancel;
+    document.getElementById('dialog').returnValue = '';
     document.getElementById('dialog-message').innerText = msg;
     document.getElementById('dialog').showModal();
   });
+  const cConfirm = async (msg) => (await cAlert(msg, { title: '⚠️ Hinweis', cancel: true })) === 'ok';
 
   document.getElementById('settings-toggle').addEventListener('click', () => {
     document.getElementById('settings').style.display = document.getElementById('settings').style.display === 'block' ? 'none' : 'block';
@@ -228,7 +250,7 @@ window.addEventListener('DOMContentLoaded', async () => {
       }
 
       removeItem(id);
-      undo.push(id);
+      undo.push({ id, count: item.count || 1 });
       printed.push(...(item.wiki || []));
     }
     document.querySelector('iframe').src = '';
@@ -237,7 +259,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     localStorage.setItem('undo', JSON.stringify(undo));
 
     // only now are they off the wiki's queue
-    removeFromWiki(printed).catch(e => console.log(e));
+    changeWiki(printed.map(entry => ({ entry, count: 0 }))).catch(e => console.log(e));
   });
 
   // the main process reports back with printDone once the print is through
@@ -266,8 +288,26 @@ window.addEventListener('DOMContentLoaded', async () => {
     return showAndPrint(pdfMake.createPdf(await contentsDocument(lists)), { ...settings, printer: settings.printerA4 }, 'a4');
   };
 
+  // The label printer cuts the tape off about a centimetre after the last label
+  // of a print job, which is wasted. With a single label that is as much tape
+  // again as the label itself, so it may be worth waiting for more.
+  const confirmSingleLabel = async (format) => {
+    const labels = Object.values(queue)
+      .filter(e => e.yaml && formatOf(e) === format)
+      .reduce((sum, e) => sum + (e.count || 1), 0);
+    return labels !== 1 || await cConfirm(
+      'Es wird nur ein einzelner Aufkleber gedruckt.\n\n' +
+      'Der Drucker schneidet nach jedem Druckauftrag etwa 1 cm leeres Band ab, das verloren geht. ' +
+      'Es spart Band, mehrere Aufkleber auf einmal zu drucken.\n\n' +
+      'Trotzdem jetzt drucken?'
+    );
+  };
+
   const printNow = async (format='large') => {
     if (printing) {
+      return;
+    }
+    if (format !== 'a4' && !(await confirmSingleLabel(format))) {
       return;
     }
 
@@ -370,6 +410,11 @@ window.addEventListener('DOMContentLoaded', async () => {
         }],
         pageBreak: 'before'
       });
+
+      // the same label again, as often as asked for
+      for (let copy = 1; copy < (item.count || 1); copy++) {
+        content.push(structuredClone(content[content.length - 1]));
+      }
     }
 
     if (content.length > 0) {
@@ -445,11 +490,13 @@ window.addEventListener('DOMContentLoaded', async () => {
     return { id, title, description: yaml.description, yaml };
   };
 
-  // wiki: the entries of the wiki's queue the item comes from, see queue
-  const queueItem = async (entry, { wiki = [] } = {}) => {
+  // wiki: the entries of the wiki's queue the item comes from, see queue;
+  // count: how many labels to print, unless the item is queued already
+  const queueItem = async (entry, { wiki = [], count = 1 } = {}) => {
     const { id, title, description: text, yaml, contents } = CONTENTS_REGEX.test(entry) ?
       await fetchContents(entry) :
       await fetchLabel(entry);
+    count = clampCount(queue[id]?.count ?? count);
 
     const item = document.createElement('li');
     item.id = id;
@@ -477,9 +524,42 @@ window.addEventListener('DOMContentLoaded', async () => {
       item.remove()
       delete queue[id];
       saveQueue();
-      removeFromWiki(entries).catch(e => cAlert(e.message));
+      changeWiki(entries.map(entry => ({ entry, count: 0 }))).catch(e => cAlert(e.message));
       input.focus();
     });
+
+    // how many labels to print, also changed in the wiki for an item from there
+    const copies = document.createElement('span');
+    copies.className = 'copies';
+    copies.title = 'Anzahl Aufkleber';
+    const less = document.createElement('button');
+    less.className = 'less';
+    less.innerText = '−';
+    const amount = document.createElement('input');
+    amount.type = 'number';
+    amount.min = 1;
+    amount.max = MAX_COPIES;
+    const more = document.createElement('button');
+    more.className = 'more';
+    more.innerText = '+';
+    copies.append(less, amount, more);
+
+    const setCount = (value) => {
+      const queued = queue[id];
+      if (!queued) {
+        return;
+      }
+
+      queued.count = clampCount(value);
+      saveQueue();
+      showCount(id);
+      if (queued.wiki?.length > 0) {
+        changeWiki(queued.wiki.map(entry => ({ entry, count: queued.count }))).catch(e => cAlert(e.message));
+      }
+    };
+    less.addEventListener('click', () => setCount((queue[id]?.count || 1) - 1));
+    more.addEventListener('click', () => setCount((queue[id]?.count || 1) + 1));
+    amount.addEventListener('change', () => setCount(amount.value));
 
     const refresh = document.createElement('button');
     refresh.innerText = '🔄️';
@@ -488,6 +568,9 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     item.appendChild(refresh);
     item.appendChild(button);
+    if (!contents) {
+      item.appendChild(copies);
+    }
     item.appendChild(bold);
     item.appendChild(label);
     item.appendChild(description);
@@ -512,16 +595,18 @@ window.addEventListener('DOMContentLoaded', async () => {
       id: id,
       title: title,
       yaml: yaml,
+      count,
       wiki
     };
     saveQueue();
+    showCount(id);
     input.focus();
   };
 
   try {
     const restored = JSON.parse(localStorage.getItem('queue'));
     for (const [id, item] of Object.entries(restored)) {
-      await queueItem(id, { wiki: item.wiki || [] });
+      await queueItem(id, { wiki: item.wiki || [], count: item.count || 1 });
     }
   } catch {
     // ignore
@@ -581,29 +666,35 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     polling = true;
     try {
-      // what could not be taken off the queue before
-      if (removals.length > 0) {
-        await removeFromWiki([]);
+      // what could not be saved to the queue before
+      if (wikiChanges.length > 0) {
+        await changeWiki([]);
       }
 
       const entries = await readQueue();
+      const names = entries.map(e => e.entry);
       const has = (list, entry) => list.some(e => sameEntry(e, entry));
 
-      // entries removed from the queue in the wiki go here too
+      // entries removed from the queue in the wiki go here too, and so do the
+      // counts changed there, unless one changed here is still to be saved
       for (const [id, item] of Object.entries(queue)) {
         if (item.wiki?.length > 0) {
-          item.wiki = item.wiki.filter(e => has(entries, e));
+          item.wiki = item.wiki.filter(e => has(names, e));
           if (item.wiki.length === 0) {
             removeItem(id);
+          } else if (!item.wiki.some(e => has(wikiChanges.map(c => c.entry), e))) {
+            item.count = Math.max(...entries.filter(e => has(item.wiki, e.entry)).map(e => e.count));
+            showCount(id);
           }
         }
       }
       saveQueue();
 
-      const known = [...Object.values(queue).flatMap(e => e.wiki || []), ...removals, ...failedEntries];
-      const added = entries.filter((e, i) => !has(known, e) && !has(entries.slice(0, i), e));
-      const results = await Promise.allSettled(added.map(e => queueItem(e, { wiki: [e] })));
-      if (results.some((e, i) => e.status === 'fulfilled' && CONTENTS_REGEX.test(added[i]))) {
+      const removed = wikiChanges.filter(e => e.count === 0).map(e => e.entry);
+      const known = [...Object.values(queue).flatMap(e => e.wiki || []), ...removed, ...failedEntries];
+      const added = entries.filter((e, i) => !has(known, e.entry) && !has(names.slice(0, i), e.entry));
+      const results = await Promise.allSettled(added.map(e => queueItem(e.entry, { wiki: [e.entry], count: e.count })));
+      if (results.some((e, i) => e.status === 'fulfilled' && CONTENTS_REGEX.test(added[i].entry))) {
         contentsPending = true;
       }
       if (contentsPending && !printing && settings.printerA4) {
@@ -612,11 +703,11 @@ window.addEventListener('DOMContentLoaded', async () => {
       }
 
       // they stay on the wiki's queue, and are only reported once
-      const failed = results.map((e, i) => e.status === 'rejected' ? added[i] : null).filter(e => e);
+      const failed = results.map((e, i) => e.status === 'rejected' ? added[i].entry : null).filter(e => e);
       failedEntries.push(...failed);
       if (failed.length > 0) {
         await cAlert([
-          ...results.map((e, i) => e.status === 'rejected' ? `${added[i]}: ${e.reason?.message}` : null).filter(e => e),
+          ...results.map((e, i) => e.status === 'rejected' ? `${added[i].entry}: ${e.reason?.message}` : null).filter(e => e),
           '',
           'Diese Einträge bleiben in der Druckwarteschlange im Wiki, bis sie dort entfernt werden.'
         ].join('\n'));
@@ -630,9 +721,9 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('save-exit').addEventListener('click', async () => {
     try {
-      await removeFromWiki([], { wait: true });
+      await changeWiki([], { wait: true });
       // what is queued in the wiki is still there, unlike what was scanned here
-      await putQueue(Object.values(queue).filter(e => !e.wiki?.length).map(e => e.id));
+      await putQueue(Object.values(queue).filter(e => !e.wiki?.length).map(e => ({ entry: e.id, count: e.count || 1 })));
     } catch (e) {
       await cAlert(e.message);
       return;
@@ -643,9 +734,10 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('undo').addEventListener('click', async () => {
     try {
+      // just ids from the version before counts
       const items = JSON.parse(localStorage.getItem('undo'));
-      for (const id of items) {
-        await queueItem(id);
+      for (const item of items) {
+        await queueItem(item.id ?? item, { count: item.count || 1 });
       }
     } catch (e) {
       await cAlert(e.message);

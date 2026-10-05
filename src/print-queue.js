@@ -93,39 +93,75 @@ async function withLock(fn, { wait = false } = {}) {
   }
 }
 
+// An entry is a "  * <entry>" line, an inventory number or
+// "inhaltsliste:<number>[:<levels>]", followed by " x <count>" for more than
+// one label; the wiki reads and writes them the same way (src/utils/api.js).
+export const MAX_COPIES = 5;
+const COUNT_REGEX = /^(.*?)\s+x\s*([0-9]+)$/i;
 const isEntry = (line) => line.startsWith('  *');
-const entryOf = (line) => line.slice(3).trim();
 export const sameEntry = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
+export const clampCount = (count) => Math.min(MAX_COPIES, Math.max(1, Math.round(Number(count)) || 1));
+const entryLine = (entry, count) => `  * ${entry}${count > 1 ? ` x ${count}` : ''}`;
 
-// the entries on the queue; they stay there until they are printed (or removed
-// in the wiki), so that the queue can be seen and edited in the wiki meanwhile
+const parseLine = (line) => {
+  const text = line.slice(3).trim();
+  const match = COUNT_REGEX.exec(text);
+  return match ? { entry: match[1].trim(), count: clampCount(match[2]) } : { entry: text, count: 1 };
+};
+
+// [{entry, count}] on the queue, in its order, an entry queued more than once
+// with the most labels any of its lines asks for. They stay there until they
+// are printed (or removed in the wiki), so that the queue can be seen and
+// edited in the wiki meanwhile.
 export async function readQueue() {
-  return (await readPage(QUEUE_PAGE)).text.split('\n').filter(isEntry).map(entryOf);
+  const entries = [];
+  for (const { entry, count } of (await readPage(QUEUE_PAGE)).text.split('\n').filter(isEntry).map(parseLine)) {
+    const known = entries.find(e => sameEntry(e.entry, entry));
+    if (known) {
+      known.count = Math.max(known.count, count);
+    } else if (entry) {
+      entries.push({ entry, count });
+    }
+  }
+  return entries;
 }
 
-// takes the given entries off the queue, all lines of each; whether that
-// happened, it does not if the lock is taken right now and wait is not set
-export async function removeFromQueue(entries, { wait = false } = {}) {
-  if (entries.length === 0) {
+// sets the counts of entries, [{entry, count}], a count of 0 takes the entry
+// off the queue; whether that happened, it does not if the lock is taken right
+// now and wait is not set
+export async function changeQueue(changes, { wait = false } = {}) {
+  if (changes.length === 0) {
     return true;
   }
 
   const done = await withLock(async () => {
-    await savePage(QUEUE_PAGE, (text) => text.split('\n')
-      .filter(e => !isEntry(e) || !entries.some(entry => sameEntry(entry, entryOf(e))))
-      .join('\n'), 'printed');
+    await savePage(QUEUE_PAGE, (text) => {
+      const seen = new Set();
+      return text.split('\n').flatMap((line) => {
+        const change = isEntry(line) && changes.find(e => sameEntry(e.entry, parseLine(line).entry));
+        if (!change) {
+          return [line];
+        }
+        if (change.count === 0 || seen.has(change)) {
+          return [];
+        }
+        seen.add(change);
+        return [entryLine(parseLine(line).entry, clampCount(change.count))];
+      }).join('\n');
+    }, 'update queue');
     return true;
   }, { wait });
   return Boolean(done);
 }
 
+// [{entry, count}]
 export async function putQueue(entries) {
   if (entries.length === 0) {
     return;
   }
 
   await withLock(
-    () => savePage(QUEUE_PAGE, (text) => `${text}\n${entries.map(e => `  * ${e}`).join('\n')}`, 'save queue'),
+    () => savePage(QUEUE_PAGE, (text) => `${text.trimEnd()}\n${entries.map(e => entryLine(e.entry, e.count)).join('\n')}`, 'save queue'),
     { wait: true }
   );
 }
