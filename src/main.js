@@ -43,12 +43,13 @@ const createWindow = () => {
   });
 
   // format is one of 'large' and 'small' for labels, or 'a4' for contents lists
+  // and 'sign' for large labels, which go to the A4 printer
   ipcMain.on('print', async (event, url, settings, format) => {
     try {
       const file = await tmp.file({ postfix: '.pdf', keep: true });
       await fs.writeFile(file.path, Buffer.from(url.slice(url.indexOf(',') + 1), 'base64'));
       const small = format === 'small';
-      const label = format !== 'a4';
+      const label = format === 'large' || format === 'small';
 
       // update registry, only the label printer needs to be told about the tape
       if (label) {

@@ -6,6 +6,7 @@ import logo from './logo.svg';
 import pdfMake from 'pdfmake/build/pdfmake';
 import { CONTENTS_REGEX, collectContents, contentsDocument, fetchInventoryItem } from './contents-list';
 import { MAX_COPIES, changeQueue, clampCount, putQueue, readQueue, sameEntry } from './print-queue';
+import { SIGN_REGEX, signDocument } from './sign';
 
 pdfMake.fonts = {
   freemono: {
@@ -159,10 +160,18 @@ window.addEventListener('DOMContentLoaded', async () => {
   // if the print never comes back, e.g. because the pdf could not be created
   const PRINT_TIMEOUT = 2 * 60 * 1000;
   let printing = null;
+  // the print job to send once this one is done, see printA4
+  let printNext = null;
   const printDone = () => {
     clearTimeout(printing);
     printing = null;
     loader.hidden = true;
+
+    const next = printNext;
+    printNext = null;
+    if (next) {
+      setTimeout(() => printNow(next));
+    }
   };
 
   // resolves with the value of the button it was closed with, '' for escape
@@ -190,8 +199,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     printDialog: false
   };
 
-  // labels come in two sizes, contents lists are A4 pages
-  const formatOf = (item) => item.contents ? 'a4' : item.yaml?.small ? 'small' : 'large';
+  // labels come in two sizes, contents lists ('a4') and large labels ('sign')
+  // are A4 pages
+  const formatOf = (item) => item.contents ? 'a4' : item.sign ? 'sign' : item.yaml?.small ? 'small' : 'large';
 
   document.getElementById('setting-print-dialog').addEventListener('change', () => {
     settings.printDialog = !settings.printDialog;
@@ -288,6 +298,37 @@ window.addEventListener('DOMContentLoaded', async () => {
     return showAndPrint(pdfMake.createPdf(await contentsDocument(lists)), { ...settings, printer: settings.printerA4 }, 'a4');
   };
 
+  // all queued large labels in one print job, on the A4 printer as well; a job
+  // of their own, as they fill the whole page, the lists' margins and all
+  const printSigns = async () => {
+    if (!settings.printerA4) {
+      return false;
+    }
+
+    const items = Object.values(queue).filter(e => formatOf(e) === 'sign');
+    if (items.length === 0) {
+      return false;
+    }
+
+    printedIds.sign = items.map(e => e.id);
+    return showAndPrint(pdfMake.createPdf(await signDocument(items.map(e => e.sign), logo)), { ...settings, printer: settings.printerA4 }, 'sign');
+  };
+
+  // what goes to the A4 printer: the contents lists, then the large labels
+  const printA4 = () => {
+    if (printing) {
+      return;
+    }
+
+    const has = (format) => Object.values(queue).some(e => formatOf(e) === format);
+    if (has('a4')) {
+      printNext = has('sign') ? 'sign' : null;
+      printNow('a4');
+    } else {
+      printNow('sign');
+    }
+  };
+
   // The label printer cuts the tape off about a centimetre after the last label
   // of a print job, which is wasted. With a single label that is as much tape
   // again as the label itself, so it may be worth waiting for more.
@@ -307,14 +348,14 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (printing) {
       return;
     }
-    if (format !== 'a4' && !(await confirmSingleLabel(format))) {
+    if ((format === 'large' || format === 'small') && !(await confirmSingleLabel(format))) {
       return;
     }
 
     printing = setTimeout(printDone, PRINT_TIMEOUT);
     loader.hidden = false;
     try {
-      if (!(await (format === 'a4' ? printContents() : printLabels(format)))) {
+      if (!(await (format === 'a4' ? printContents() : format === 'sign' ? printSigns() : printLabels(format)))) {
         // nothing to print
         printDone();
       }
@@ -463,6 +504,19 @@ window.addEventListener('DOMContentLoaded', async () => {
     };
   };
 
+  // "schild:39C3", an A4 page of large labels of an item (see sign.js)
+  const fetchSign = async (entry) => {
+    const inventoryId = SIGN_REGEX.exec(entry)[1].toUpperCase();
+    const { title, description } = await fetchLabel(inventoryId);
+    return {
+      // the queue entry itself, as for contents lists
+      id: `schild:${inventoryId}`,
+      title,
+      description: 'Große Aufkleber, 4 auf einer A4-Seite',
+      sign: { inventoryId, title, description }
+    };
+  };
+
   const fetchLabel = async (inventoryId) => {
     const res = await fetch(`https://wiki.temporaerhaus.de/inventar/${inventoryId}`);
 
@@ -493,9 +547,9 @@ window.addEventListener('DOMContentLoaded', async () => {
   // wiki: the entries of the wiki's queue the item comes from, see queue;
   // count: how many labels to print, unless the item is queued already
   const queueItem = async (entry, { wiki = [], count = 1 } = {}) => {
-    const { id, title, description: text, yaml, contents } = CONTENTS_REGEX.test(entry) ?
+    const { id, title, description: text, yaml, contents, sign } = CONTENTS_REGEX.test(entry) ?
       await fetchContents(entry) :
-      await fetchLabel(entry);
+      SIGN_REGEX.test(entry) ? await fetchSign(entry) : await fetchLabel(entry);
     count = clampCount(queue[id]?.count ?? count);
 
     const item = document.createElement('li');
@@ -503,9 +557,11 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     const bold = document.createElement('b');
     bold.style.marginRight = '1em';
-    bold.innerText = contents ? contents.inventoryId : id;
+    bold.innerText = contents ? contents.inventoryId : sign ? sign.inventoryId : id;
     if (contents) {
       bold.innerText += ' 📄';
+    } else if (sign) {
+      bold.innerText += ' 🪧';
     } else if (yaml.small) {
       bold.innerText += ' 🤏';
     }
@@ -568,7 +624,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     item.appendChild(refresh);
     item.appendChild(button);
-    if (!contents) {
+    if (!contents && !sign) {
       item.appendChild(copies);
     }
     item.appendChild(bold);
@@ -590,6 +646,11 @@ window.addEventListener('DOMContentLoaded', async () => {
       id: id,
       title: title,
       contents: contents,
+      wiki
+    } : sign ? {
+      id: id,
+      title: title,
+      sign: sign,
       wiki
     } : {
       id: id,
@@ -632,7 +693,7 @@ window.addEventListener('DOMContentLoaded', async () => {
           printNow('small');
           return;
         } else if (input.value === 'PRINT_A4') {
-          printNow('a4');
+          printA4();
           return;
         }
 
@@ -650,7 +711,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   document.querySelector('#print').addEventListener('click', () => printNow('large'));
   document.querySelector('#print-small').addEventListener('click', () => printNow('small'));
-  document.querySelector('#print-a4').addEventListener('click', () => printNow('a4'));
+  document.querySelector('#print-a4').addEventListener('click', () => printA4());
 
   // one look at the queue at a time, a slow wiki must not lead to overlapping ones
   let polling = false;
@@ -694,12 +755,12 @@ window.addEventListener('DOMContentLoaded', async () => {
       const known = [...Object.values(queue).flatMap(e => e.wiki || []), ...removed, ...failedEntries];
       const added = entries.filter((e, i) => !has(known, e.entry) && !has(names.slice(0, i), e.entry));
       const results = await Promise.allSettled(added.map(e => queueItem(e.entry, { wiki: [e.entry], count: e.count })));
-      if (results.some((e, i) => e.status === 'fulfilled' && CONTENTS_REGEX.test(added[i].entry))) {
+      if (results.some((e, i) => e.status === 'fulfilled' && (CONTENTS_REGEX.test(added[i].entry) || SIGN_REGEX.test(added[i].entry)))) {
         contentsPending = true;
       }
       if (contentsPending && !printing && settings.printerA4) {
         contentsPending = false;
-        printNow('a4');
+        printA4();
       }
 
       // they stay on the wiki's queue, and are only reported once
