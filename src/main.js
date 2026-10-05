@@ -3,7 +3,7 @@ const { print, getPrinters, getDefaultPrinter } = require('pdf-to-printer');
 const regedit = require('regedit');
 const tmp = require('tmp-promise');
 const fs = require('fs/promises');
-require('update-electron-app')();
+const updater = require('./updater');
 
 regedit.setExternalVBSLocation('./.webpack/main/vbs');
 regedit.setExternalVBSLocation('./vbs');
@@ -32,6 +32,12 @@ const createWindow = () => {
 
   ipcMain.handle('quit', () => app.quit());
   ipcMain.handle('isProduction', () => app.isPackaged);
+
+  // shown in the settings, where an update can be looked for and restarted into
+  const updates = updater((state) => mainWindow.webContents.send('updateStatus', state));
+  ipcMain.handle('getUpdateStatus', () => updates.state());
+  ipcMain.handle('checkForUpdates', () => updates.check());
+  ipcMain.handle('restartToUpdate', () => updates.restart());
 
   ipcMain.on('getPrinters', async () => {
     const printers = await getPrinters();

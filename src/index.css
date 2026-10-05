@@ -1841,3 +1841,9 @@ li > .copies input {
   font-size: inherit;
   text-align: center;
 }
+
+/* the running version and what the updater does, above its buttons */
+#update-status {
+  display: block;
+  margin-bottom: .5em;
+}

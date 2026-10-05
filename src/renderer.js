@@ -188,6 +188,60 @@ window.addEventListener('DOMContentLoaded', async () => {
   });
   const cConfirm = async (msg) => (await cAlert(msg, { title: '⚠️ Hinweis', cancel: true })) === 'ok';
 
+  // The running version and what the updater is doing, in the settings, where
+  // an update can be looked for; a downloaded one asks for the restart, once by
+  // itself, and after every look that was asked for
+  const updateStatus = document.getElementById('update-status');
+  const updateRestart = document.getElementById('update-restart');
+  let updateRequested = false;
+  let updatePrompted = false;
+  const timeOf = (time) => new Date(time).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  const confirmRestart = async () => {
+    if ((await cAlert('Ein Update wurde heruntergeladen.\n\nJetzt neu starten, um es zu installieren?', { title: '🔄 Update', cancel: true })) === 'ok') {
+      window.electronAPI.restartToUpdate();
+    }
+  };
+  const showUpdate = async (state) => {
+    const text = {
+      checking: 'sucht nach Updates …',
+      downloading: 'Update wird geladen …',
+      'up-to-date': state.checked ? `aktuell, zuletzt geprüft ${timeOf(state.checked)}` : 'aktuell',
+      downloaded: 'Update geladen, Neustart nötig',
+      error: `Update-Fehler: ${state.error}`,
+      unsupported: 'Entwicklungsversion, ohne Updates'
+    }[state.status];
+    updateStatus.innerText = `Version ${state.version}${text ? ` · ${text}` : ''}`;
+    updateRestart.hidden = state.status !== 'downloaded';
+
+    // not over a dialog that is open already, the restart button is there
+    if (document.getElementById('dialog').open) {
+      return;
+    }
+    if (state.status === 'downloaded' && (updateRequested || !updatePrompted)) {
+      updateRequested = false;
+      updatePrompted = true;
+      await confirmRestart();
+    } else if (updateRequested && ['up-to-date', 'error', 'unsupported'].includes(state.status)) {
+      updateRequested = false;
+      await cAlert({
+        'up-to-date': 'Keine neuen Updates verfügbar.',
+        error: `Nach Updates suchen hat nicht geklappt: ${state.error}`,
+        unsupported: 'Updates gibt es nur für das installierte Terminal.'
+      }[state.status], { title: state.status === 'error' ? '⚠️ Fehler' : '🔄 Update' });
+    }
+  };
+  window.electronAPI.onUpdateStatus((event, state) => showUpdate(state));
+  window.electronAPI.getUpdateStatus().then(state => showUpdate(state));
+  document.getElementById('update-check').addEventListener('click', async () => {
+    updateRequested = true;
+    // the answer comes as a status; one that is there already is shown right away
+    const state = await window.electronAPI.checkForUpdates();
+    if (['downloaded', 'unsupported'].includes(state.status)) {
+      await showUpdate(state);
+    }
+  });
+  updateRestart.addEventListener('click', () => confirmRestart());
+
   document.getElementById('settings-toggle').addEventListener('click', () => {
     document.getElementById('settings').style.display = document.getElementById('settings').style.display === 'block' ? 'none' : 'block';
   });
