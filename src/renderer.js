@@ -5,7 +5,7 @@ import QRCode from 'qrcode';
 import logo from './logo.svg';
 import pdfMake from 'pdfmake/build/pdfmake';
 import { CONTENTS_REGEX, collectContents, contentsDocument, fetchInventoryItem } from './contents-list';
-import { putQueue, takeQueue } from './print-queue';
+import { putQueue, readQueue, removeFromQueue, sameEntry } from './print-queue';
 
 pdfMake.fonts = {
   freemono: {
@@ -106,7 +106,36 @@ window.addEventListener('DOMContentLoaded', async () => {
   const printerA4Select = document.getElementById('setting-printer-a4');
   const input = document.getElementById('scan');
   const parser = new DOMParser();
+  // id => item; an item from the wiki's queue lists the entries there it came
+  // from in wiki, they stay on that queue until the item is printed
   const queue = {};
+  const saveQueue = () => localStorage.setItem('queue', JSON.stringify(queue));
+  // format => ids of the items in the print job of that format, which are the
+  // ones to clear once it is printed, not whatever was queued meanwhile
+  const printedIds = {};
+  const removeItem = (id) => {
+    delete queue[id];
+    document.getElementById(id)?.remove();
+  };
+
+  // entries to take off the wiki's queue, because they were printed or removed
+  // here; kept until that worked, the lock may be taken, the wiki unreachable
+  let removals = [];
+  try {
+    removals = JSON.parse(localStorage.getItem('removals')) || [];
+  } catch {
+    // ignore
+  }
+  const removeFromWiki = async (entries, { wait = false } = {}) => {
+    removals.push(...entries);
+    localStorage.setItem('removals', JSON.stringify(removals));
+
+    const pending = [...removals];
+    if (await removeFromQueue(pending, { wait })) {
+      removals = removals.filter(e => !pending.includes(e));
+      localStorage.setItem('removals', JSON.stringify(removals));
+    }
+  };
 
   // shown from a click on a print button until the print is done
   const loader = document.getElementById('printing');
@@ -191,19 +220,24 @@ window.addEventListener('DOMContentLoaded', async () => {
   window.electronAPI.onPrintDone(() => printDone());
   window.electronAPI.onClear((event, format) => {
     const undo = [];
-    for (const [id, item] of Object.entries(queue)) {
-      if (formatOf(item) !== format) {
+    const printed = [];
+    for (const id of printedIds[format] || []) {
+      const item = queue[id];
+      if (!item) {
         continue;
       }
 
-      delete queue[id];
-      document.getElementById(id).remove();
+      removeItem(id);
       undo.push(id);
+      printed.push(...(item.wiki || []));
     }
     document.querySelector('iframe').src = '';
     document.querySelector('iframe').style.display = 'none';
-    localStorage.setItem('queue', JSON.stringify(queue));
+    saveQueue();
     localStorage.setItem('undo', JSON.stringify(undo));
+
+    // only now are they off the wiki's queue
+    removeFromWiki(printed).catch(e => console.log(e));
   });
 
   // the main process reports back with printDone once the print is through
@@ -222,11 +256,13 @@ window.addEventListener('DOMContentLoaded', async () => {
       return false;
     }
 
-    const lists = Object.values(queue).filter(e => formatOf(e) === 'a4').map(e => e.contents);
-    if (lists.length === 0) {
+    const items = Object.values(queue).filter(e => formatOf(e) === 'a4');
+    if (items.length === 0) {
       return false;
     }
 
+    const lists = items.map(e => e.contents);
+    printedIds.a4 = items.map(e => e.id);
     return showAndPrint(pdfMake.createPdf(await contentsDocument(lists)), { ...settings, printer: settings.printerA4 }, 'a4');
   };
 
@@ -256,11 +292,13 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     const small = format === 'small';
     const content = [];
+    const ids = [];
 
     for (const [id, item] of Object.entries(queue)) {
       if (!item.yaml || formatOf(item) !== format) {
         continue;
       }
+      ids.push(id);
 
       const svg = await new Promise((resolve, reject) => QRCode.toString(id, {
         version: 1,
@@ -352,6 +390,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         content: content
       });
 
+      printedIds[format] = ids;
       return showAndPrint(pdf, settings, format);
     }
 
@@ -406,7 +445,8 @@ window.addEventListener('DOMContentLoaded', async () => {
     return { id, title, description: yaml.description, yaml };
   };
 
-  const queueItem = async (entry) => {
+  // wiki: the entries of the wiki's queue the item comes from, see queue
+  const queueItem = async (entry, { wiki = [] } = {}) => {
     const { id, title, description: text, yaml, contents } = CONTENTS_REGEX.test(entry) ?
       await fetchContents(entry) :
       await fetchLabel(entry);
@@ -432,9 +472,12 @@ window.addEventListener('DOMContentLoaded', async () => {
     const button = document.createElement('button');
     button.innerText = '🗑';
     button.addEventListener('click', () => {
+      // otherwise the next look at the wiki's queue brings it back
+      const entries = queue[id]?.wiki || [];
       item.remove()
       delete queue[id];
-      localStorage.setItem('queue', JSON.stringify(queue));
+      saveQueue();
+      removeFromWiki(entries).catch(e => cAlert(e.message));
       input.focus();
     });
 
@@ -458,23 +501,27 @@ window.addEventListener('DOMContentLoaded', async () => {
       tmp.remove();
     }
 
+    // a refresh, or a scan of something that is queued in the wiki as well
+    wiki = [...(queue[id]?.wiki || []), ...wiki];
     queue[id] = contents ? {
       id: id,
       title: title,
-      contents: contents
+      contents: contents,
+      wiki
     } : {
       id: id,
       title: title,
-      yaml: yaml
+      yaml: yaml,
+      wiki
     };
-    localStorage.setItem('queue', JSON.stringify(queue));
+    saveQueue();
     input.focus();
   };
 
   try {
     const restored = JSON.parse(localStorage.getItem('queue'));
-    for (const id of Object.keys(restored)) {
-      await queueItem(id);
+    for (const [id, item] of Object.entries(restored)) {
+      await queueItem(id, { wiki: item.wiki || [] });
     }
   } catch {
     // ignore
@@ -525,6 +572,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   // contents lists from the wiki's queue are printed right away, without a click on
   // print, once a running print is done and the A4 printer is known
   let contentsPending = false;
+  // entries of the wiki's queue that could not be loaded, until the next start
+  const failedEntries = [];
   setInterval(async () => {
     if (polling || !(await window.electronAPI.isProduction())) {
       return;
@@ -532,10 +581,29 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     polling = true;
     try {
-      // the entries are off the wiki's queue now, so failures have to be shown here
-      const entries = await takeQueue();
-      const results = await Promise.allSettled(entries.map(e => queueItem(e)));
-      if (results.some((e, i) => e.status === 'fulfilled' && CONTENTS_REGEX.test(entries[i]))) {
+      // what could not be taken off the queue before
+      if (removals.length > 0) {
+        await removeFromWiki([]);
+      }
+
+      const entries = await readQueue();
+      const has = (list, entry) => list.some(e => sameEntry(e, entry));
+
+      // entries removed from the queue in the wiki go here too
+      for (const [id, item] of Object.entries(queue)) {
+        if (item.wiki?.length > 0) {
+          item.wiki = item.wiki.filter(e => has(entries, e));
+          if (item.wiki.length === 0) {
+            removeItem(id);
+          }
+        }
+      }
+      saveQueue();
+
+      const known = [...Object.values(queue).flatMap(e => e.wiki || []), ...removals, ...failedEntries];
+      const added = entries.filter((e, i) => !has(known, e) && !has(entries.slice(0, i), e));
+      const results = await Promise.allSettled(added.map(e => queueItem(e, { wiki: [e] })));
+      if (results.some((e, i) => e.status === 'fulfilled' && CONTENTS_REGEX.test(added[i]))) {
         contentsPending = true;
       }
       if (contentsPending && !printing && settings.printerA4) {
@@ -543,9 +611,15 @@ window.addEventListener('DOMContentLoaded', async () => {
         printNow('a4');
       }
 
-      const failed = results.map((e, i) => e.status === 'rejected' ? `${entries[i]}: ${e.reason?.message}` : null).filter(e => e);
+      // they stay on the wiki's queue, and are only reported once
+      const failed = results.map((e, i) => e.status === 'rejected' ? added[i] : null).filter(e => e);
+      failedEntries.push(...failed);
       if (failed.length > 0) {
-        await cAlert(failed.join('\n'));
+        await cAlert([
+          ...results.map((e, i) => e.status === 'rejected' ? `${added[i]}: ${e.reason?.message}` : null).filter(e => e),
+          '',
+          'Diese Einträge bleiben in der Druckwarteschlange im Wiki, bis sie dort entfernt werden.'
+        ].join('\n'));
       }
     } catch (e) {
       console.log(e);
@@ -556,7 +630,9 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('save-exit').addEventListener('click', async () => {
     try {
-      await putQueue(Object.keys(queue));
+      await removeFromWiki([], { wait: true });
+      // what is queued in the wiki is still there, unlike what was scanned here
+      await putQueue(Object.values(queue).filter(e => !e.wiki?.length).map(e => e.id));
     } catch (e) {
       await cAlert(e.message);
       return;

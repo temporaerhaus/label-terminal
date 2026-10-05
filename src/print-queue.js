@@ -94,22 +94,29 @@ async function withLock(fn, { wait = false } = {}) {
 }
 
 const isEntry = (line) => line.startsWith('  *');
+const entryOf = (line) => line.slice(3).trim();
+export const sameEntry = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
-// takes all entries off the queue, an empty list if there are none or the lock is taken
-export async function takeQueue() {
-  if (!(await readPage(QUEUE_PAGE)).text.split('\n').some(isEntry)) {
-    return [];
+// the entries on the queue; they stay there until they are printed (or removed
+// in the wiki), so that the queue can be seen and edited in the wiki meanwhile
+export async function readQueue() {
+  return (await readPage(QUEUE_PAGE)).text.split('\n').filter(isEntry).map(entryOf);
+}
+
+// takes the given entries off the queue, all lines of each; whether that
+// happened, it does not if the lock is taken right now and wait is not set
+export async function removeFromQueue(entries, { wait = false } = {}) {
+  if (entries.length === 0) {
+    return true;
   }
 
-  return await withLock(async () => {
-    let entries = [];
-    await savePage(QUEUE_PAGE, (text) => {
-      const lines = text.split('\n');
-      entries = lines.filter(isEntry).map(e => e.slice(3).trim());
-      return lines.filter(e => !isEntry(e)).join('\n');
-    }, 'empty queue');
-    return entries;
-  }) || [];
+  const done = await withLock(async () => {
+    await savePage(QUEUE_PAGE, (text) => text.split('\n')
+      .filter(e => !isEntry(e) || !entries.some(entry => sameEntry(entry, entryOf(e))))
+      .join('\n'), 'printed');
+    return true;
+  }, { wait });
+  return Boolean(done);
 }
 
 export async function putQueue(entries) {
