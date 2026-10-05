@@ -4,6 +4,9 @@ const sumatra = fs.readdirSync('node_modules/pdf-to-printer/dist/').find(e => e.
 
 module.exports = {
   packagerConfig: {
+    // the app as plain files, as before @electron/packager 19 made an asar
+    // archive the default: pdf-to-printer and regedit run files from disk
+    asar: false,
     extraResource: [
       `node_modules/pdf-to-printer/dist/${sumatra}`,
       `node_modules/regedit/vbs`

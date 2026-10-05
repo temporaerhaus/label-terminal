@@ -480,7 +480,9 @@ window.addEventListener('DOMContentLoaded', async () => {
         }] : [{
           svg: svg,
           width: mm2pt(18),
-          margin: [mm2pt(0), mm2pt(3), mm2pt(3), mm2pt(3)],
+          // below the QR code a little less than the 3 mm above it: 3 + 18 + 3 mm is the
+          // label's full height, which pdfmake 0.2.23 (unlike 0.2.7) spills onto a second, empty page
+          margin: [mm2pt(0), mm2pt(3), mm2pt(3), mm2pt(2.5)],
         }, {
           width: '*',
           margin: [mm2pt(3), mm2pt(1.7), mm2pt(2), mm2pt(3)],
