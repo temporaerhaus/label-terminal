@@ -458,7 +458,9 @@ window.addEventListener('DOMContentLoaded', async () => {
           margin: [mm2pt(0), mm2pt(1), mm2pt(3), mm2pt(1)],
         }, {
           width: '*',
-          margin: [mm2pt(1), mm2pt(.3), mm2pt(1), mm2pt(3)],
+          // no margin below the text: with two lines of description, it would make the
+          // column higher than the label, which pdfmake spills onto a second, empty page
+          margin: [mm2pt(1), mm2pt(.3), mm2pt(1), mm2pt(0)],
           stack: [{
             bold: true,
             fontSize: 7,
