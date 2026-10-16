@@ -1,6 +1,7 @@
-// Contents lists of containers, printed on A4. Collecting the contents and the
-// layout are copied from the inventory wiki (src/components/ContentsListComponent.vue),
-// keep them in sync.
+// Contents lists of containers, and checklists of any items, printed on A4.
+// Collecting the contents and the layout are copied from the inventory wiki
+// (src/components/ContentsListComponent.vue, src/components/ChecklistComponent.vue
+// and src/utils/contents.js), keep them in sync.
 import YAML from 'yaml';
 import QRCode from 'qrcode';
 import logo from './logo-full.svg';
@@ -12,6 +13,27 @@ const YAML_REGEX = /```yaml\n(.*?)\n```/s;
 // print queue entries look like "inhaltsliste:39C3" or "inhaltsliste:39C3:2",
 // the number being how many levels of sub containers to list the contents of
 export const CONTENTS_REGEX = /^inhaltsliste:([^:\s]+)(?::(\d+))?$/i;
+
+// "checkliste:V-GM000376,V-TM000012:Sommerfest%202026", items selected in the
+// wiki to tick off, their numbers sorted and the optional heading URI-encoded
+// (see src/utils/api.js in the wiki)
+export const CHECKLIST_REGEX = /^checkliste:([^:\s]+)(?::(\S*))?$/i;
+export const CHECKLIST_HEADING = 'Ausgewählte Gegenstände';
+
+// {ids, heading} of a checklist entry, and the entry back from them, the way
+// the wiki writes it, so that it is the same entry for the queue
+export function parseChecklist(entry) {
+  const [, ids, heading = ''] = CHECKLIST_REGEX.exec(entry);
+  let decoded = heading;
+  try {
+    decoded = decodeURIComponent(heading);
+  } catch {
+    // shown as it is
+  }
+  return { ids: [...new Set(ids.toUpperCase().split(',').filter(Boolean))].sort((a, b) => a.localeCompare(b)), heading: decoded.trim() };
+}
+
+export const checklistEntry = ({ ids, heading }) => `checkliste:${ids.join(',')}${heading ? `:${encodeURIComponent(heading)}` : ''}`;
 
 // "all levels" still stops here, to deal with potential circular links
 const MAX_DEPTH = 10;
@@ -85,6 +107,16 @@ export async function collectContents(containerId, levels, depth = 0, seen = new
   return rows;
 }
 
+// the rows of a checklist, in the order of their numbers; missing are the
+// numbers of the items that were not found
+export async function collectChecklist(ids) {
+  const items = await Promise.all(ids.map(async (id) => ({ id, item: await fetchInventoryItem(id) })));
+  return {
+    rows: items.filter(e => e.item).map(({ id, item }) => ({ id, title: item.title || '', description: String(item.description || ''), depth: 0 })),
+    missing: items.filter(e => !e.item).map(e => e.id),
+  };
+}
+
 // name and description of an item, one line each, cut to what fits
 function titleCell(row, fit, width) {
   return { stack: [
@@ -100,7 +132,7 @@ function titleCell(row, fit, width) {
 const page = { width: mm2pt(297), height: mm2pt(210) };
 const margin = { side: mm2pt(12), top: mm2pt(32), bottom: mm2pt(14) };
 
-// the pages of one contents list, each one starting on a new page
+// the pages of one contents list or checklist, each one starting on a new page
 function contentsPages({ inventoryId, rows }) {
   const gap = mm2pt(8);
   const column = (page.width - 2 * margin.side - gap) / 2;
@@ -181,13 +213,15 @@ function contentsPages({ inventoryId, rows }) {
     columnGap: gap
   })) : [{
     // unlike in the wiki there is no italic font here
-    text: `Keine Gegenstände an diesem Ort (${inventoryId}).`, color: '#666666'
+    text: inventoryId ? `Keine Gegenstände an diesem Ort (${inventoryId}).` : 'Keine Gegenstände.', color: '#666666'
   }];
 }
 
-// One document for any number of contents lists, so they go out as a single
-// print job. Since the rows are split into pages up front, it is known which
-// pages belong to which list, which the header and footer are looked up by.
+// One document for any number of contents lists and checklists, so they go
+// out as a single print job. Since the rows are split into pages up front, it
+// is known which pages belong to which list, which the header and footer are
+// looked up by. A contents list has the inventoryId of its container, which
+// gets its QR code and link; a checklist has its kind and heading instead.
 export async function contentsDocument(lists) {
   const created = new Date().toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' });
 
@@ -199,7 +233,7 @@ export async function contentsDocument(lists) {
       ...list,
       first: content.length + 1,
       count: pages.length,
-      qrCode: await QRCode.toString(list.inventoryId, { margin: 0, type: 'svg', errorCorrectionLevel: 'Q' })
+      qrCode: list.inventoryId ? await QRCode.toString(list.inventoryId, { margin: 0, type: 'svg', errorCorrectionLevel: 'Q' }) : null
     });
     // every list gets at least one page, even without any contents
     for (const e of pages) {
@@ -212,21 +246,21 @@ export async function contentsDocument(lists) {
     pageSize: 'A4',
     pageOrientation: 'landscape',
     pageMargins: [margin.side, margin.top, margin.side, margin.bottom],
-    info: { title: `Inhaltsliste ${lists.map(e => e.inventoryId).join(', ')}` },
+    info: { title: lists.map(e => e.inventoryId ? `Inhaltsliste ${e.inventoryId}` : `${e.kind} ${e.heading}`).join(', ') },
     defaultStyle: { font: 'freemono', fontSize: 9 },
 
     header: (current) => {
-      const { inventoryId, title, rows, qrCode } = section(current);
+      const { inventoryId, kind = 'Inhaltsliste', heading = inventoryId, title, rows, qrCode } = section(current);
       return {
-        columns: [{
+        columns: [...(qrCode ? [{
           svg: qrCode,
           width: mm2pt(18)
-        }, {
+        }] : []), {
           width: '*',
-          margin: [mm2pt(4), 0, 0, 0],
+          margin: [qrCode ? mm2pt(4) : 0, 0, 0, 0],
           stack: [
-            { text: 'Inhaltsliste', fontSize: 8, color: '#666666' },
-            { text: inventoryId, fontSize: 14, bold: true },
+            { text: kind, fontSize: 8, color: '#666666' },
+            { text: heading, fontSize: 14, bold: true },
             { text: title || '', fontSize: 10 },
             { text: `${rows.length} ${rows.length === 1 ? 'Gegenstand' : 'Gegenstände'} · Stand ${created}`, fontSize: 7, color: '#666666' }
           ]
@@ -241,10 +275,10 @@ export async function contentsDocument(lists) {
 
     footer: (current) => {
       const { inventoryId, first, count } = section(current);
-      const pageUrl = `${WIKI}/${PREFIX}/${inventoryId.toLowerCase()}`;
+      const pageUrl = inventoryId ? `${WIKI}/${PREFIX}/${inventoryId.toLowerCase()}` : '';
       return {
         columns: [
-          { text: pageUrl, link: pageUrl, color: '#0066aa' },
+          pageUrl ? { text: pageUrl, link: pageUrl, color: '#0066aa' } : { text: '' },
           { text: `Seite ${current - first + 1} von ${count}`, alignment: 'right', color: '#666666' }
         ],
         fontSize: 7,

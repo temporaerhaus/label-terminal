@@ -4,7 +4,7 @@ import YAML from 'yaml';
 import QRCode from 'qrcode';
 import logo from './logo.svg';
 import pdfMake from 'pdfmake/build/pdfmake';
-import { CONTENTS_REGEX, collectContents, contentsDocument, fetchInventoryItem } from './contents-list';
+import { CHECKLIST_HEADING, CHECKLIST_REGEX, CONTENTS_REGEX, checklistEntry, collectChecklist, collectContents, contentsDocument, fetchInventoryItem, parseChecklist } from './contents-list';
 import { MAX_COPIES, changeQueue, clampCount, putQueue, readQueue, sameEntry } from './print-queue';
 import { SIGN_REGEX, signDocument } from './sign';
 
@@ -562,6 +562,24 @@ window.addEventListener('DOMContentLoaded', async () => {
     };
   };
 
+  // "checkliste:V-GM000376,V-TM000012:Sommerfest%202026", items selected in the
+  // wiki to tick off, on A4 with the contents lists
+  const fetchChecklist = async (entry) => {
+    const { ids, heading } = parseChecklist(entry);
+    const { rows, missing } = await collectChecklist(ids);
+    if (rows.length === 0) {
+      throw new Error(`${ids.join(', ')} nicht gefunden`);
+    }
+
+    return {
+      // the queue entry itself, as for contents lists
+      id: checklistEntry({ ids, heading }),
+      title: heading || CHECKLIST_HEADING,
+      description: `Checkliste, ${rows.length} ${rows.length === 1 ? 'Gegenstand' : 'Gegenstände'}${missing.length > 0 ? `, nicht gefunden: ${missing.join(', ')}` : ''}`,
+      contents: { inventoryId: '', kind: 'Checkliste', heading: heading || CHECKLIST_HEADING, rows }
+    };
+  };
+
   // "schild:39C3", an A4 page of large labels of an item (see sign.js)
   const fetchSign = async (entry) => {
     const inventoryId = SIGN_REGEX.exec(entry)[1].toUpperCase();
@@ -607,6 +625,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const queueItem = async (entry, { wiki = [], count = 1 } = {}) => {
     const { id, title, description: text, yaml, contents, sign } = CONTENTS_REGEX.test(entry) ?
       await fetchContents(entry) :
+      CHECKLIST_REGEX.test(entry) ? await fetchChecklist(entry) :
       SIGN_REGEX.test(entry) ? await fetchSign(entry) : await fetchLabel(entry);
     count = clampCount(queue[id]?.count ?? count);
 
@@ -615,7 +634,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     const bold = document.createElement('b');
     bold.style.marginRight = '1em';
-    bold.innerText = contents ? contents.inventoryId : sign ? sign.inventoryId : id;
+    bold.innerText = contents ? contents.inventoryId || contents.kind : sign ? sign.inventoryId : id;
     if (contents) {
       bold.innerText += ' 📄';
     } else if (sign) {
@@ -813,7 +832,7 @@ window.addEventListener('DOMContentLoaded', async () => {
       const known = [...Object.values(queue).flatMap(e => e.wiki || []), ...removed, ...failedEntries];
       const added = entries.filter((e, i) => !has(known, e.entry) && !has(names.slice(0, i), e.entry));
       const results = await Promise.allSettled(added.map(e => queueItem(e.entry, { wiki: [e.entry], count: e.count })));
-      if (results.some((e, i) => e.status === 'fulfilled' && (CONTENTS_REGEX.test(added[i].entry) || SIGN_REGEX.test(added[i].entry)))) {
+      if (results.some((e, i) => e.status === 'fulfilled' && [CONTENTS_REGEX, CHECKLIST_REGEX, SIGN_REGEX].some(regex => regex.test(added[i].entry)))) {
         contentsPending = true;
       }
       if (contentsPending && !printing && settings.printerA4) {
